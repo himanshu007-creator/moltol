@@ -1,0 +1,9 @@
+node_modules
+dist
+.turbo
+pnpm-lock.yaml
+coverage
+*.md
+**/migrations/meta
+infra/terraform/.terraform
+infra/terraform/*.tfstate*

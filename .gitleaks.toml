@@ -1,0 +1,14 @@
+title = "moltol"
+[extend]
+useDefault = true
+
+# Files that legitimately contain placeholder values, not live secrets.
+[allowlist]
+description = "Examples and fixtures"
+paths = [
+  '''\.env\.example$''',
+  '''infra/terraform/.*\.tfvars\.example$''',
+  '''docs/.*\.md$''',
+  '''packages/paypal/test/.*''',
+  '''packages/policy/test/.*''',
+]
