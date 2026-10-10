@@ -1,0 +1,16 @@
+node_modules
+**/node_modules
+**/dist
+.turbo
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+infra/terraform/.terraform
+infra/terraform/*.tfstate*
+infra/terraform/*.tfvars
+!infra/terraform/*.tfvars.example
+docs
+**/*.md
+!README.md

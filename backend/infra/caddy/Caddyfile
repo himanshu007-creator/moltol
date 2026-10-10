@@ -1,0 +1,27 @@
+# Caddy fronts the (possibly many) api replicas. `dynamic a` re-resolves the
+# `api` service name against Docker's embedded DNS so it load-balances across
+# every replica that `--scale api=N` creates. With SITE_ADDRESS set to
+# api.<ip>.nip.io Caddy issues a Let's Encrypt certificate automatically.
+
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	reverse_proxy {
+		lb_policy round_robin
+
+		dynamic a {
+			name api
+			port 3000
+			refresh 5s
+			resolvers 127.0.0.11
+		}
+
+		health_uri /healthz
+		health_interval 15s
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
