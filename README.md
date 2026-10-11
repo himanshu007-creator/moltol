@@ -18,7 +18,6 @@ afterwards without ever revealing the limits mid-negotiation.
 ```
 apps/api          Fastify REST API + SSE event stream + PayPal checkout/webhook
 apps/worker       Negotiation runner (BullMQ) + timeout sweeper
-apps/workflow     Render Workflows task handler (same engine, serverless runner)
 packages/contracts  zod schemas + event envelope + state machine (FE ⇄ BE source of truth)
 packages/policy     pure negotiation engine: concessions, guard, commit–reveal, range proofs
 packages/engine     runHaggle(): orchestrates policy + LLM wording + event log
@@ -27,7 +26,7 @@ packages/paypal     OAuth token cache, Orders v2 create/capture, webhook self-ve
 packages/market     market comps (Channel3 client + deterministic seeded fallback)
 packages/llm        LLM turn-text adapter (OpenAI-compatible, with canned fallback)
 infra/caddy         reverse proxy + load balancer + automatic TLS
-infra/terraform     DigitalOcean VM + Docker deploy (self-host option)
+infra/terraform     AWS (EC2) + Docker deploy (self-host option)
 ```
 
 ## Hard invariants
@@ -79,15 +78,22 @@ Set `PAYPAL_ENV=sandbox`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WE
 and `PUBLIC_BASE_URL=https://<your-https-host>` (PayPal only delivers to HTTPS :443 —
 use a tunnel locally).
 
-## Deploy (self-host on DigitalOcean)
+## Deploy (self-host on AWS)
 
 ```bash
+# Credentials via the standard chain: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+# (or AWS_PROFILE / ~/.aws/credentials).
 cd infra/terraform
-cp terraform.tfvars.example terraform.tfvars   # set do_token + repo_url
+cp terraform.tfvars.example terraform.tfvars   # set region/instance_type + your SSH key paths
 terraform init && terraform plan && terraform apply
 ```
 
-The API is published at `https://api.<droplet-ip>.nip.io` (free DNS, automatic TLS).
+Provisions an EC2 instance (default region `ap-southeast-2` = Sydney, the only
+region the AWS Free-plan grants this account) with an Elastic IP, a security group
+(22/80/443), and cloud-init that installs Docker. Terraform snapshots your local
+workspace into a tarball, uploads it with `.env`, and runs `docker compose up`, so
+**no git repo or credentials are needed on the instance**. The API is published at
+`https://api.<elastic-ip>.nip.io` (free DNS, automatic TLS).
 `terraform destroy` tears it down.
 
 ## Scripts

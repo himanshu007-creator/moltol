@@ -1,5 +1,5 @@
 # MolTol full stack. Same file is used for local "production-like" runs and for
-# the DigitalOcean VM that Terraform deploys.
+# the AWS EC2 instance that Terraform deploys.
 #
 #   docker compose up -d --scale api=3
 #
@@ -113,7 +113,7 @@ services:
       - "443:443"
     environment:
       # Default is plain HTTP on :80. Terraform sets this to
-      # api.<droplet-ip>.nip.io so Caddy provisions HTTPS automatically.
+      # api.<instance-ip>.nip.io so Caddy provisions HTTPS automatically.
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
     volumes:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro

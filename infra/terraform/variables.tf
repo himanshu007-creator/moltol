@@ -1,30 +1,29 @@
-variable "do_token" {
-  description = "DigitalOcean API token (or set DIGITALOCEAN_TOKEN)."
+variable "aws_region" {
+  description = "AWS region. ap-southeast-2 = Sydney (the only region the Free-plan SCP permits for this account)."
   type        = string
-  sensitive   = true
-  default     = null
+  default     = "ap-southeast-2"
 }
 
-variable "region" {
-  description = "DigitalOcean region slug."
+variable "instance_type" {
+  description = "EC2 instance type. Free-plan accounts are limited to free-tier-eligible types. t3.small (2vCPU/2GB) is the minimum that runs the stack."
   type        = string
-  default     = "nyc3"
+  default     = "t3.small"
 }
 
-variable "droplet_size" {
-  description = "Droplet size slug. s-1vcpu-1gb is enough for a demo; bump to s-2vcpu-4gb when scaling api replicas."
-  type        = string
-  default     = "s-1vcpu-1gb"
-}
-
-variable "droplet_name" {
-  description = "Droplet hostname."
+variable "instance_name" {
+  description = "EC2 instance name/tag."
   type        = string
   default     = "moltol"
 }
 
+variable "root_volume_gb" {
+  description = "Root EBS volume size (GiB). Docker images need headroom."
+  type        = number
+  default     = 30
+}
+
 variable "ssh_public_key_path" {
-  description = "Path to the SSH public key to register with DigitalOcean."
+  description = "Path to the SSH public key to register as an EC2 key pair."
   type        = string
   default     = "~/.ssh/id_ed25519.pub"
 }
@@ -41,19 +40,8 @@ variable "ssh_allowed_cidrs" {
   default     = ["0.0.0.0/0", "::/0"]
 }
 
-variable "repo_url" {
-  description = "Public git URL of the MolTol repo that the VM clones to deploy."
-  type        = string
-}
-
-variable "git_ref" {
-  description = "Git ref (branch/tag/sha) to deploy."
-  type        = string
-  default     = "main"
-}
-
 variable "repo_subdir" {
-  description = "Directory inside the repo that contains the Docker stack (the compose file). Root workspace."
+  description = "Directory inside the deployed source that contains the Docker stack (the compose file). Root workspace."
   type        = string
   default     = "."
 }

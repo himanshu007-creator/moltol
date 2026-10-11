@@ -10,5 +10,14 @@ runcmd:
   - systemctl enable --now docker
   # docker compose v2 ships with the get.docker.com install; verify.
   - docker compose version
-  - mkdir -p /opt/moltol
-  - touch /opt/moltol/.cloud-init-done
+  # Let the default ubuntu user drive docker without sudo. (Do NOT override the
+  # `users:` block here: that stops EC2 from injecting the launch keypair into
+  # /home/ubuntu/.ssh/authorized_keys and locks us out of SSH.)
+  - usermod -aG docker ubuntu
+  # 4G swap so `docker build` (tsc + pnpm) doesn't OOM on a 2GB instance.
+  - fallocate -l 4G /swapfile
+  - chmod 600 /swapfile
+  - mkswap /swapfile
+  - swapon /swapfile
+  - echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  - touch /home/ubuntu/.cloud-init-done

@@ -2,9 +2,13 @@ terraform {
   required_version = ">= 1.6"
 
   required_providers {
-    digitalocean = {
-      source  = "digitalocean/digitalocean"
-      version = "~> 2.43"
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.60"
     }
     null = {
       source  = "hashicorp/null"

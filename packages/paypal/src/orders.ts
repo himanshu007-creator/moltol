@@ -94,7 +94,7 @@ export async function captureOrder(
   const { ok, status, data } = await client.request<CaptureResponse>(
     "POST",
     `/v2/checkout/orders/${orderId}/capture`,
-    { requestId },
+    { body: {}, requestId },
   );
   if (!ok) throw new Error(`paypal capture failed: ${status} ${JSON.stringify(data)}`);
   const capture = data.purchase_units?.[0]?.payments?.captures?.[0];

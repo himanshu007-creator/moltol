@@ -1,35 +1,26 @@
 #!/usr/bin/env bash
-# Runs on the droplet. Clones/updates the repo, builds the images and starts the
-# stack. api/worker replica counts come from Terraform variables.
+# Runs on the EC2 instance. Terraform already extracted the source tarball into
+# REPO_DIR; this builds the images and starts the stack. api/worker replica
+# counts come from Terraform variables.
 set -euo pipefail
 
-REPO_DIR=/opt/moltol/repo
-ENV_FILE=/opt/moltol/.env
-REPO_URL="${repo_url}"
-GIT_REF="${git_ref}"
+REPO_DIR=/home/ubuntu/moltol/repo
+ENV_FILE=/home/ubuntu/moltol/.env
 SUBDIR="${repo_subdir}"
 API_REPLICAS=${api_replicas}
 WORKER_REPLICAS=${worker_replicas}
 
-echo "[moltol] deploy start ref=$GIT_REF subdir=$SUBDIR api=$API_REPLICAS worker=$WORKER_REPLICAS"
-
-if [ -d "$REPO_DIR/.git" ]; then
-  git -C "$REPO_DIR" fetch --all --prune
-else
-  rm -rf "$REPO_DIR"
-  git clone "$REPO_URL" "$REPO_DIR"
-fi
-
-git -C "$REPO_DIR" checkout --force "$GIT_REF"
-git -C "$REPO_DIR" reset --hard "origin/$GIT_REF" 2>/dev/null || true
-
 cd "$REPO_DIR/$SUBDIR"
 
-echo "[moltol] building images"
-docker compose --env-file "$ENV_FILE" build
+# Compose v5 resolves --env-file relative to the project dir; ship .env there
+# so interpolation always works regardless of version.
+cp "$ENV_FILE" "$REPO_DIR/$SUBDIR/.env"
+
+echo "[moltol] building images (subdir=$SUBDIR api=$API_REPLICAS worker=$WORKER_REPLICAS)"
+docker compose build
 
 echo "[moltol] starting stack"
-docker compose --env-file "$ENV_FILE" up -d --remove-orphans \
+docker compose up -d --remove-orphans \
   --scale api="$API_REPLICAS" \
   --scale worker="$WORKER_REPLICAS"
 
@@ -37,5 +28,5 @@ echo "[moltol] pruning dangling images"
 docker image prune -f >/dev/null 2>&1 || true
 
 echo "[moltol] status"
-docker compose --env-file "$ENV_FILE" ps
+docker compose ps
 echo "[moltol] deploy complete"

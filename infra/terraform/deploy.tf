@@ -1,7 +1,7 @@
 locals {
-  nip_io_host     = "${var.app_subdomain}.${digitalocean_droplet.app.ipv4_address}.${var.domain_suffix}"
+  nip_io_host     = "${var.app_subdomain}.${aws_eip.app.public_ip}.${var.domain_suffix}"
   site_address    = var.enable_https ? local.nip_io_host : ":80"
-  public_base_url = var.enable_https ? "https://${local.nip_io_host}" : "http://${digitalocean_droplet.app.ipv4_address}"
+  public_base_url = var.enable_https ? "https://${local.nip_io_host}" : "http://${aws_eip.app.public_ip}"
 
   env_template_args = {
     postgres_user        = "moltol"
@@ -22,17 +22,44 @@ locals {
   }
 }
 
-# Deploy (build + run) the Docker stack on the droplet. Re-runs when the ref,
-# replica counts, or generated env change. This is the "Terraform deploys
-# Docker" step: cloud-init installs the engine, this provisions the stack.
+# Snapshot the local repo (workspace root) so no git repo or credentials are
+# needed on the instance. The Docker images build from this source.
+data "archive_file" "src" {
+  type        = "tar.gz"
+  source_dir  = "${path.module}/../.."
+  output_path = "${path.module}/moltol-src.tar.gz"
+
+  excludes = [
+    ".git",
+    ".git/**",
+    "**/node_modules",
+    "**/node_modules/**",
+    "**/dist",
+    "**/dist/**",
+    "**/.turbo",
+    "**/.turbo/**",
+    "infra/terraform/.terraform",
+    "infra/terraform/.terraform/**",
+    "**/*.tfstate",
+    "**/*.tfstate.*",
+    "**/*.tfvars",
+    "**/*.tar.gz",
+    ".env",
+    "**/coverage",
+    "**/coverage/**",
+    ".DS_Store",
+  ]
+}
+
+# Deploy (build + run) the Docker stack on the instance. Re-runs when the source
+# snapshot, replica counts, or generated env change. cloud-init installed Docker,
+# this provisions the stack from the uploaded tarball.
 resource "null_resource" "deploy" {
-  depends_on = [digitalocean_droplet.app, digitalocean_firewall.app]
+  depends_on = [aws_instance.app, aws_eip.app, aws_security_group.app]
 
   triggers = {
-    droplet_id      = digitalocean_droplet.app.id
-    repo_url        = var.repo_url
-    git_ref         = var.git_ref
-    repo_subdir     = var.repo_subdir
+    instance_id     = aws_instance.app.id
+    src_hash        = data.archive_file.src.output_base64sha256
     image_tag       = var.image_tag
     api_replicas    = var.api_replicas
     worker_replicas = var.worker_replicas
@@ -42,36 +69,48 @@ resource "null_resource" "deploy" {
 
   connection {
     type        = "ssh"
-    host        = digitalocean_droplet.app.ipv4_address
-    user        = "root"
+    host        = aws_eip.app.public_ip
+    user        = "ubuntu" # default login user on the Ubuntu EC2 image
     private_key = file(pathexpand(var.ssh_private_key_path))
     timeout     = "10m"
   }
 
+  provisioner "remote-exec" {
+    inline = [
+      # A prior failed run left a stray file at /home/ubuntu/moltol (the file
+      # provisioner can't create parent dirs). Ensure it is a clean directory
+      # before any uploads.
+      "rm -f /home/ubuntu/moltol 2>/dev/null || true; mkdir -p /home/ubuntu/moltol",
+    ]
+  }
+
+  provisioner "file" {
+    source      = data.archive_file.src.output_path
+    destination = "/home/ubuntu/moltol/src.tar.gz"
+  }
+
   provisioner "file" {
     content     = templatefile("${path.module}/templates/env.tftpl", local.env_template_args)
-    destination = "/opt/moltol/.env"
+    destination = "/home/ubuntu/moltol/.env"
   }
 
   provisioner "file" {
     content = templatefile("${path.module}/templates/deploy.sh.tftpl", {
-      repo_url        = var.repo_url
-      git_ref         = var.git_ref
       repo_subdir     = var.repo_subdir
       api_replicas    = var.api_replicas
       worker_replicas = var.worker_replicas
       image_tag       = var.image_tag
-      site_address    = local.site_address
     })
-    destination = "/opt/moltol/deploy.sh"
+    destination = "/home/ubuntu/moltol/deploy.sh"
   }
 
   provisioner "remote-exec" {
     inline = [
-      "install -d -m 0700 /opt/moltol",
-      "chmod +x /opt/moltol/deploy.sh",
-      "for i in $(seq 1 60); do [ -f /opt/moltol/.cloud-init-done ] && break; sleep 5; done",
-      "bash /opt/moltol/deploy.sh",
+      "chmod +x /home/ubuntu/moltol/deploy.sh",
+      "for i in $(seq 1 60); do [ -f /home/ubuntu/.cloud-init-done ] && break; sleep 5; done",
+      "rm -rf /home/ubuntu/moltol/repo && mkdir -p /home/ubuntu/moltol/repo",
+      "tar -xzf /home/ubuntu/moltol/src.tar.gz -C /home/ubuntu/moltol/repo",
+      "bash /home/ubuntu/moltol/deploy.sh",
     ]
   }
 }
