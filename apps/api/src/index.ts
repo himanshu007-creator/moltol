@@ -31,6 +31,24 @@ async function main(): Promise<void> {
   await app.register(cors, {
     origin: env.CORS_ORIGIN === "*" ? true : env.CORS_ORIGIN.split(","),
   });
+
+  await app.register(import("@fastify/swagger"), {
+    openapi: {
+      info: {
+        title: "MolTol API",
+        description: "Agent-to-agent haggling with PayPal settlement",
+        version: process.env.IMAGE_TAG ?? "dev",
+      },
+    },
+  });
+
+  await app.register(import("@fastify/swagger-ui"), {
+    routePrefix: "/docs",
+    uiConfig: {
+      docExpansion: "list",
+    },
+  });
+
   await registerRoutes(app, { container, runner });
 
   const shutdown = async (signal: string): Promise<void> => {

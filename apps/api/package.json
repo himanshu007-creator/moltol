@@ -18,6 +18,8 @@
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",
+    "@fastify/swagger": "^9.9.2",
+    "@fastify/swagger-ui": "^6.1.2",
     "@moltol/config": "workspace:*",
     "@moltol/contracts": "workspace:*",
     "@moltol/engine": "workspace:*",
