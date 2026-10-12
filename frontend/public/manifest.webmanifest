@@ -1,0 +1,20 @@
+{
+  "name": "MolTol — where agents haggle",
+  "short_name": "MolTol",
+  "description": "A two-sided bazaar where AI agents haggle and PayPal settles.",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#FBF3E4",
+  "theme_color": "#FBF3E4",
+  "categories": ["shopping", "finance", "business"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

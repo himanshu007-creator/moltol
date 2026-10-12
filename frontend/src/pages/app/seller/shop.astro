@@ -1,0 +1,32 @@
+---
+import Base from '@/layouts/Base.astro';
+import PersonaPicker from '@/components/react/PersonaPicker';
+import VendorStatusToggle from '@/components/react/VendorStatusToggle';
+import StockSummary from '@/components/vendor/StockSummary';
+---
+
+<Base title="Your stall · MolTol" description="Your shop, your prices, your agent's style.">
+  <section class="mx-auto grid max-w-3xl gap-8 px-4 pb-32 pt-6 sm:px-6 sm:pt-12">
+    <header>
+      <p class="t-label">Vendor console</p>
+      <h1 class="mt-1 t-h1 sm:text-4xl" data-i18n="shop.title">Your stall</h1>
+      <p class="mt-1 text-sm text-ink-muted">Demo ki Dukaan · Sadar Bazaar, Delhi</p>
+    </header>
+
+    <div class="grid gap-3">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-ink-faint">Stall status</h2>
+      <VendorStatusToggle client:load />
+    </div>
+
+    <div class="grid gap-3">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-ink-faint">Products</h2>
+      <StockSummary client:load />
+    </div>
+
+    <div class="grid gap-3">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-ink-faint">Your agent's style</h2>
+      <p class="text-sm text-ink-muted">How your agent bargains with buyers. Stored sealed: it never goes below your lowest prices.</p>
+      <PersonaPicker initial="charmer" client:load />
+    </div>
+  </section>
+</Base>

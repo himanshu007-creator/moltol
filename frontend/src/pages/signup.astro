@@ -1,0 +1,23 @@
+---
+import Base from '../layouts/Base.astro';
+import AuthForm from '../components/buyer/AuthForm';
+---
+
+<Base shell={false} title="Create account · MolTol">
+  <section class="mx-auto grid min-h-[calc(100dvh-4rem)] max-w-6xl items-center gap-10 px-5 pb-28 pt-8 sm:px-8 lg:grid-cols-2 lg:pb-16">
+    <div class="surface-solid rise hidden min-h-[30rem] flex-col justify-between p-10 lg:flex">
+      <div class="grid gap-4">
+        <h1 class="t-display !text-ink">One account, two roles.</h1>
+        <p class="max-w-md text-lg text-ink-muted">Buy from the bazaar in the morning, run your own stall in the evening. Switch from the menu, no reload.</p>
+      </div>
+      <p class="text-sm text-ink-faint">Sandbox money only. Hackathon build.</p>
+    </div>
+    <div class="mx-auto grid w-full max-w-sm gap-6">
+      <div class="rise lg:hidden">
+        <h1 class="t-h1 mt-1">One account, two roles</h1>
+        <p class="t-lede mt-1">Buy from the bazaar, or run your own stall. Switch anytime.</p>
+      </div>
+      <AuthForm client:load mode="signup" />
+    </div>
+  </section>
+</Base>

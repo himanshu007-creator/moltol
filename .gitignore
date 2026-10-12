@@ -1,24 +1,4 @@
-node_modules/
-dist/
-.turbo/
-*.tsbuildinfo
-
-.env
-.env.*
-!.env.example
-
-# Terraform
-infra/terraform/.terraform/
-infra/terraform/.terraform.lock.hcl
-infra/terraform/*.tfstate
-infra/terraform/*.tfstate.*
-infra/terraform/*.tfvars
-!infra/terraform/*.tfvars.example
-infra/terraform/*.tar.gz
-crash.log
-.terraformrc
-
-# Editors / OS
+# OS / editor
 .DS_Store
-.idea/
 .vscode/
+.idea/

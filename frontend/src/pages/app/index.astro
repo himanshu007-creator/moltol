@@ -1,0 +1,26 @@
+---
+import Base from '@/layouts/Base.astro';
+---
+
+<Base title="Open MolTol" shell={false}>
+  <!-- routes the signed-in user to their home for the role and mode they chose -->
+  <main class="grid min-h-[60dvh] place-items-center p-8 text-ink-muted">
+    <p id="going">Opening…</p>
+  </main>
+  <script is:inline>
+    (function () {
+      // the full session lives in IndexedDB; this tiny hint is a synchronous mirror (see stores/session.ts)
+      var st = null;
+      try { st = JSON.parse(localStorage.getItem('moltol-auth-hint') || 'null'); } catch (e) {}
+      var dest = '/login';
+      if (st && st.loggedIn) {
+        if (st.activeRole === 'seller') {
+          dest = st.sellerMode === 'modern' ? '/app/seller/inventory' : st.sellerMode === 'simple' ? '/app/seller/simple' : '/app/seller/mode';
+        } else {
+          dest = '/app/buy';
+        }
+      }
+      location.replace(dest);
+    })();
+  </script>
+</Base>

@@ -1,0 +1,24 @@
+# deps
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+.output/
+.astro/
+test-results/
+playwright-report/
+
+# env
+.env
+.env.*
+!.env.example
+
+# os / editor
+.DS_Store
+*.log
+.vscode/
+.idea/
+
+# crush session cache
+.crush/
