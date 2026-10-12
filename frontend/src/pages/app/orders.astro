@@ -1,0 +1,14 @@
+---
+import Base from '@/layouts/Base.astro';
+import Orders from '@/components/buyer/Orders';
+import PageHead from '@/components/astro/PageHead.astro';
+---
+
+<Base title="Orders · MolTol">
+  <section class="mx-auto w-full max-w-md px-5 pb-32 pt-8 sm:px-8 lg:max-w-5xl">
+    <PageHead eyebrow="Your orders" title="Baskets you settled" lede="Track each basket from packing to pickup, and open its receipt." />
+    <div class="mt-6">
+      <Orders client:load />
+    </div>
+  </section>
+</Base>

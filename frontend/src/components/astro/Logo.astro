@@ -1,0 +1,16 @@
+---
+import { cn } from '@/lib/cn';
+
+interface Props {
+  class?: string;
+  compact?: boolean;
+}
+const { class: cls, compact = false } = Astro.props;
+---
+
+<a href="/" class={cn('group inline-flex items-center gap-2.5', cls)} aria-label="MolTol, home">
+  <img src="/icon.svg" alt="" width="36" height="36" class="h-10 w-10 shrink-0 rounded-[13px] shadow-[0_8px_18px_-10px_rgb(192_31_51/0.8)] transition-transform duration-300 group-hover:-rotate-6" />
+  {!compact && (
+    <span class="block font-display text-xl font-semibold tracking-tight text-ink">MolTol</span>
+  )}
+</a>

@@ -1,0 +1,184 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { navigate } from 'astro:transitions/client';
+import { useCart } from '@/stores/cart';
+import { useBazaar } from '@/stores/bazaar';
+import { useLiveShops } from '@/stores/inventory';
+import { useBuyer } from '@/stores/buyer';
+import { formatMoney } from '@/lib/money';
+import { requestFor, PRESETS, type PresetId } from '@/lib/personality';
+import PersonalityPicker from '@/components/buyer/PersonalityPicker';
+import { compsOf, cheapest } from '@/lib/mock/market';
+import { roundQty, stepForLabel } from '@/lib/units';
+import { cn } from '@/lib/cn';
+import type { InventoryItem } from '@/lib/mock/seeds';
+
+/**
+ * The basket. Choose which items the agents haggle (all or selected), pick a
+ * haggle style for this basket, then start. The saved style is only the default.
+ */
+export default function CartSheet() {
+  const cart = useCart();
+  const bazaar = useBazaar();
+  const savedPersonality = useBuyer((s) => s.personality);
+  const [preset, setPreset] = useState<PresetId>(savedPersonality);
+  const shops = useLiveShops();
+  const shop = shops.find((s) => s.id === cart.shopId) ?? shops[0]!;
+
+  // scope: which lines the agents haggle. Starts as "all"; new lines join it.
+  const [picked, setPicked] = useState<string[]>(() => cart.lines.map((l) => l.sku));
+  const known = useRef(new Set(cart.lines.map((l) => l.sku)));
+  useEffect(() => {
+    // a line added after mount is ticked by default; lines removed drop out of the selection
+    const skus = cart.lines.map((l) => l.sku);
+    const fresh = skus.filter((sku) => !known.current.has(sku));
+    known.current = new Set(skus);
+    setPicked((p) => [...p.filter((sku) => skus.includes(sku)), ...fresh]);
+  }, [cart.lines]);
+
+  const included = cart.lines.filter((l) => picked.includes(l.sku));
+  const scope = included.length === cart.lines.length ? 'all' : 'chosen';
+  const includedTotal = included.reduce((s, l) => s + Math.round(l.listCents * l.qty), 0);
+  const maxPotential = useMemo(
+    () =>
+      included.reduce((s2, l) => {
+        const m = compsOf(itemOf(l.sku, shop));
+        return s2 + Math.max(0, Math.round((l.listCents - m.p25Cents) * l.qty));
+      }, 0),
+    [included, shop],
+  );
+  const toggle = (sku: string) => setPicked((p) => (p.includes(sku) ? p.filter((s) => s !== sku) : [...p, sku]));
+
+  const startHaggle = () => {
+    if (!included.length) return;
+    const lines = included
+      .map((l) => ({ ...l, item: shop.products.find((p) => p.sku === l.sku) }))
+      .filter((x): x is typeof x & { item: InventoryItem } => !!x.item);
+    const request = requestFor(preset);
+    bazaar.start(shop, lines, { scope, style: request.tone, budgetCents: null, request });
+    // Soft nav (not location.href): a hard reload can outrun the async IndexedDB
+    // write of the negotiation just started, so /app/bazaar hydrates stale/empty.
+    void navigate('/app/bazaar');
+  };
+
+  if (!cart.lines.length) {
+    return (
+      <div className="surface grid justify-items-center gap-4 p-10 text-center">
+        <span className="grid h-20 w-20 place-items-center rounded-3xl bg-paper-3 text-4xl" aria-hidden="true">🧺</span>
+        <div>
+          <p className="t-h2">Your basket is empty</p>
+          <p className="mt-1 text-ink-muted">Pick a stall and add a few things. Your agents will haggle them in parallel.</p>
+        </div>
+        <a href="/app/buy" className="btn btn-primary">Find stalls nearby</a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-6 pb-44">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="t-label">Your basket</p>
+          <h1 className="t-h1 mt-1">{shop.name.en}</h1>
+          <p className="mt-1 text-sm text-ink-muted">{cart.lines.length} items · tick the ones your agent should haggle</p>
+        </div>
+        <span className="pill">{shop.emoji} {shop.kind}</span>
+      </header>
+
+      <ul className="grid gap-3" aria-label="Basket items">
+        {cart.lines.map((l) => {
+          const item = itemOf(l.sku, shop);
+          const m = compsOf(item);
+          const saved = Math.max(0, l.listCents - m.medianCents);
+          const isIn = picked.includes(l.sku);
+          // cross-shop nudge only for library-priced items; vendor items have no comps elsewhere
+          const best = item.market ? undefined : cheapest(item.itemId);
+          const step = stepForLabel(l.unit);
+          return (
+            <li key={l.sku} className={cn('surface flex items-center gap-3 p-3 transition sm:gap-4 sm:p-4', !isIn && 'opacity-60')}>
+              <label className="flex min-h-11 min-w-11 cursor-pointer items-center justify-center">
+                <input
+                  type="checkbox"
+                  checked={isIn}
+                  onChange={() => toggle(l.sku)}
+                  aria-label={`Haggle ${l.title.en}`}
+                  className="h-5 w-5 accent-chili"
+                />
+              </label>
+              <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-paper-3 text-3xl" aria-hidden="true">{l.emoji}</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-semibold text-ink">{l.title.en}</p>
+                <p className="mt-0.5 text-xs text-ink-muted">
+                  {roundQty(l.qty)} × <span className="t-num">{formatMoney(l.listCents)}</span>
+                  {saved > 0 && <span className="font-semibold text-teal"> · sticker is {formatMoney(saved)} over market</span>}
+                </p>
+                {best && best.shopId !== cart.shopId && best.priceCents < l.listCents && (
+                  <p className="mt-1 text-[11px] font-semibold text-indigo">
+                    {best.emoji} {best.name} has it for {formatMoney(best.priceCents)}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-1 rounded-2xl bg-paper-3 p-1" role="group" aria-label={`Quantity of ${l.title.en}`}>
+                <StepBtn label="−" onClick={() => cart.setQty(l.sku, roundQty(l.qty - step))} />
+                <span className="t-num w-12 text-center text-sm font-semibold text-ink">{roundQty(l.qty)}</span>
+                <StepBtn label="+" onClick={() => cart.setQty(l.sku, roundQty(l.qty + step))} />
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      <section className="surface grid gap-4 p-5" aria-labelledby="style-h">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 id="style-h" className="t-h2">Haggle style for this basket</h2>
+          <span className="text-xs text-ink-muted">Changes only this basket</span>
+        </div>
+        <PersonalityPicker value={preset} onChange={setPreset} />
+        <p className="text-xs text-ink-muted">
+          Haggling {included.length} of {cart.lines.length} items{scope === 'chosen' ? ' (selected)' : ''}. {PRESETS[preset].label} keeps up to {PRESETS[preset].rounds} rounds per item.
+        </p>
+      </section>
+
+      <section className="surface grid gap-2 p-5 text-sm" aria-label="Totals">
+        <div className="flex justify-between text-ink-muted">
+          <span>Sticker total (haggled items)</span>
+          <span className="t-num text-ink">{formatMoney(includedTotal)}</span>
+        </div>
+        <div className="flex justify-between font-semibold text-teal">
+          <span>Possible saving, rough estimate</span>
+          <span className="t-num">{formatMoney(maxPotential)}</span>
+        </div>
+      </section>
+
+      {/* sticky action bar, above the bottom nav */}
+      <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+5rem)] z-30 px-4 sm:bottom-24">
+        <div className="mx-auto flex max-w-md items-center gap-3 rounded-3xl bg-ink p-3 pl-4 shadow-2xl">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold uppercase tracking-widest text-paper/60">Sticker, {included.length} items</p>
+            <p className="t-num text-xl font-semibold text-paper">{formatMoney(includedTotal)}</p>
+          </div>
+          <a href="/app/buy" className="btn btn-quiet !min-h-12 !px-4 !text-sm">Browse</a>
+          <button type="button" onClick={startHaggle} disabled={!included.length} className="btn btn-primary !min-h-12">
+            Start haggling
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function itemOf(sku: string, shop: { products: InventoryItem[] }): InventoryItem {
+  return shop.products.find((p) => p.sku === sku) ?? shop.products[0]!;
+}
+
+function StepBtn({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label === '+' ? 'Add one' : 'Remove one'}
+      className="grid h-11 w-11 place-items-center rounded-xl bg-paper text-lg font-semibold text-ink shadow-sm transition active:scale-95"
+    >
+      {label}
+    </button>
+  );
+}

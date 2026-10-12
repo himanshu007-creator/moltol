@@ -12,6 +12,11 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        # the backend workspace (package.json, pnpm-lock.yaml, turbo.json) lives
+        # in backend/ now that this repo also holds the frontend, in frontend/
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,6 +28,7 @@ jobs:
         with:
           node-version: 22.12.0
           cache: pnpm
+          cache-dependency-path: backend/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm turbo run build --cache-dir=.turbo
       - run: pnpm turbo run typecheck --cache-dir=.turbo
@@ -38,3 +44,4 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: backend/.gitleaks.toml

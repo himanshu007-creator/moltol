@@ -1,0 +1,10 @@
+---
+import Base from '@/layouts/Base.astro';
+import StallGrid from '@/components/buyer/StallGrid';
+---
+
+<Base title="Stall">
+  <section class="mx-auto w-full max-w-md lg:max-w-5xl px-4 pt-6">
+    <StallGrid client:only="react" />
+  </section>
+</Base>

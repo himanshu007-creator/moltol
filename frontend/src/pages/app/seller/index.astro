@@ -1,0 +1,16 @@
+---
+import Base from '@/layouts/Base.astro';
+---
+
+<Base title="Your stall" shell={false}>
+  <main class="grid min-h-[60dvh] place-items-center p-8 text-ink-muted"><p>Opening your stall…</p></main>
+  <script is:inline>
+    (function () {
+      // the full session lives in IndexedDB; this tiny hint is a synchronous mirror (see stores/session.ts)
+      var st = null;
+      try { st = JSON.parse(localStorage.getItem('moltol-auth-hint') || 'null'); } catch (e) {}
+      var mode = st && st.sellerMode;
+      location.replace(mode === 'modern' ? '/app/seller/inventory' : mode === 'simple' ? '/app/seller/simple' : '/app/seller/mode');
+    })();
+  </script>
+</Base>

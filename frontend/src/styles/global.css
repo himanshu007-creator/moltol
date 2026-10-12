@@ -1,0 +1,420 @@
+@import "tailwindcss";
+
+/* `dark:` keys off our explicit theme attribute, not the OS setting. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ============================================================================
+   MolTol design tokens — "Mandi at golden hour"  (FE_plan.md §4)
+   The palette is declared once here. Tailwind v4 turns each --color-* into a
+   utility (bg-paper, text-ink, border-chalk …). Dark theme re-binds the same
+   variables under html[data-theme="dark"], so nothing else has to branch.
+   ========================================================================= */
+@theme {
+  /* --- type --- */
+  --font-display: "Fraunces", ui-serif, Georgia, "Times New Roman", serif;
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "IBM Plex Mono", SFMono-Regular, monospace;
+
+  /* modular scale ×1.25 — 12 14 16 20 25 31 39 49 61 */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1.0625rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.5625rem;
+  --text-2xl: 1.9375rem;
+  --text-3xl: 2.4375rem;
+  --text-4xl: 3.0625rem;
+  --text-5xl: 3.8125rem;
+
+  /* --- light palette (default) --- */
+  --color-paper: #FFFDF8;        /* page */
+  --color-paper-2: #FFFFFF;      /* cards */
+  --color-paper-3: #F6EFE0;      /* wells, chips */
+  --color-ink: #14110C;          /* body text: 18.5:1 on paper */
+  --color-ink-muted: #3F3A30;    /* secondary text: 11.1:1 */
+  --color-ink-faint: #554F42;    /* tertiary text: 8.0:1 */
+  --color-chalk: #8C8372;        /* dividers and borders: 3.7:1 */
+  --color-chalk-strong: #4A4437; /* control borders: 9.5:1 */
+  --color-marigold: #FFB300;     /* accent fill; ink text on it: 10.5:1 */
+  --color-chili: #B3001B;        /* shop accent, text 7.0:1, white on it 7.2:1 */
+  --color-teal: #006B5E;         /* success, text 6.3:1, white on it 6.4:1 */
+  --color-indigo: #1F2FA8;       /* links, text 10.2:1 */
+  --color-ring: #1F2FA8;
+  --color-warn: #6A4200;         /* amber text on light surfaces, 8:1 */
+
+  --radius-card: 18px;
+  --radius-tag: 10px;
+}
+
+/* --- night bazaar (dark) --- */
+html[data-theme="dark"] {
+  --color-paper: #0B0D12;
+  --color-paper-2: #151821;
+  --color-paper-3: #05060A;
+  --color-ink: #F5F3EC;
+  --color-ink-muted: #CFCBBE;
+  --color-ink-faint: #B0AC9F;
+  --color-chalk: #6B7080;
+  --color-chalk-strong: #9CA1B3;
+  --color-marigold: #FFC629;
+  --color-chili: #FF6B7D;
+  --color-teal: #2DD4BF;
+  --color-indigo: #9DB0FF;
+  --color-ring: #FFC629;
+  --color-warn: #FFD56B;         /* amber text on dark surfaces */
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    /* fullscreen mobile: never scroll the page behind the chrome */
+    overscroll-behavior-y: none;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-marigold) 38%, transparent);
+    color: var(--color-ink);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  .tabular { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}
+
+/* ============================================================================
+   Atmosphere — rangoli pattern + paper grain (FE_plan §4, landing guide)
+   Both are low-contrast by design so they never compete with content.
+   ========================================================================= */
+@layer utilities {
+  .bg-rangoli {
+    background-image: radial-gradient(
+        circle at center,
+        color-mix(in oklab, var(--color-chalk) 65%, transparent) 0 1px,
+        transparent 1.5px
+      ),
+      repeating-conic-gradient(
+        from 0deg at 50% 50%,
+        transparent 0deg 22.5deg,
+        color-mix(in oklab, var(--color-chalk) 40%, transparent) 22.5deg 23deg
+      );
+    background-size: 28px 28px, 112px 112px;
+  }
+  .bg-grain {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
+  }
+  .text-balance { text-wrap: balance; }
+  .text-pretty { text-wrap: pretty; }
+
+  /* safe-area helpers (notches, home indicator) — FE_plan §8 */
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  .px-safe {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  .min-h-dvh { min-height: 100dvh; }
+  .h-dvh { height: 100dvh; }
+}
+
+/* The one loud moment gets a soft bloom; everything else stays quiet. */
+@keyframes moltol-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+.animate-pulse-soft { animation: moltol-pulse 2.6s ease-in-out infinite; }
+
+@keyframes moltol-ticker {
+  from { transform: translateY(0.35em); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.animate-tick { animation: moltol-ticker 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* thin, theme-aware scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-chalk-strong) transparent;
+}
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--color-chalk-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* When a session exists the app Shell owns the chrome (account menu + bottom
+   nav), so hide the marketing Header's right-side cluster to avoid overlap. */
+html[data-auth='1'] [data-app-chrome] {
+  display: none;
+}
+
+/* ============================================================================
+   Design system v2 — typography, surfaces, buttons, motion
+   Plan: "Mandi at golden hour" (plan.md §8, FE_plan.md §4).
+   Fraunces for display, Instrument Sans for UI, JetBrains Mono for every price.
+   ========================================================================= */
+@layer components {
+  /* type */
+  .t-display {
+    font-family: var(--font-display);
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    line-height: 1.04;
+    font-size: clamp(2.1rem, 5.2vw, 3.2rem);
+    color: var(--color-ink);
+    text-wrap: balance;
+  }
+  .t-h1 {
+    font-family: var(--font-display);
+    font-weight: 620;
+    letter-spacing: -0.015em;
+    line-height: 1.1;
+    font-size: clamp(1.7rem, 3.6vw, 2.25rem);
+    color: var(--color-ink);
+    text-wrap: balance;
+  }
+  .t-h2 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.15;
+    font-size: clamp(1.3rem, 2.6vw, 1.56rem);
+    color: var(--color-ink);
+  }
+  .t-lede {
+    font-size: var(--text-base);
+    line-height: 1.55;
+    color: var(--color-ink-muted);
+    max-width: 38rem;
+  }
+  .t-label {
+    font-size: 0.72rem;
+    font-weight: 650;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-ink-muted);
+  }
+  .t-num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+    letter-spacing: -0.01em;
+  }
+
+  /* surfaces */
+  .surface {
+    border-radius: 1.75rem;
+    border: 1px solid var(--color-chalk);
+    background: var(--color-paper-2);
+    box-shadow:
+      0 1px 0 color-mix(in oklab, var(--color-ink) 4%, transparent),
+      0 22px 44px -30px color-mix(in oklab, var(--color-ink) 45%, transparent);
+  }
+  .surface-soft {
+    border-radius: 1.5rem;
+    background: color-mix(in oklab, var(--color-paper-3) 70%, transparent);
+    border: 1px solid color-mix(in oklab, var(--color-chalk) 80%, transparent);
+  }
+  .surface-accent {
+    border-radius: 1.75rem;
+    border: 2px solid #14110C;
+    background: var(--color-marigold);
+    /* text on marigold is always dark, in both themes, so the tokens are pinned here */
+    --color-ink: #14110C;
+    --color-ink-muted: #2E2A20;
+    --color-ink-faint: #4A4536;
+    color: #14110C;
+  }
+  .surface-solid {
+    border-radius: 1.75rem;
+    border: 2px solid var(--color-chalk-strong);
+    background: var(--color-paper-2);
+    color: var(--color-ink);
+    box-shadow: 4px 4px 0 var(--color-ink);
+  }
+
+  /* the "sunset" page wash: warm glow at the top, fades into paper */
+
+  /* buttons (48px touch target, 16px label) */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 3rem;
+    padding: 0 1.25rem;
+    border-radius: 1rem;
+    font-weight: 650;
+    font-size: 1rem;
+    letter-spacing: -0.005em;
+    transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+    user-select: none;
+    white-space: nowrap;
+  }
+  .btn:active:not(:disabled) { transform: scale(0.98); }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn-primary {
+    color: #23180a;
+    background: linear-gradient(180deg, #ffc233 0%, #f2a900 100%);
+    box-shadow: 0 14px 28px -16px rgb(242 169 0 / 0.95), inset 0 1px 0 rgb(255 255 255 / 0.5);
+  }
+  .btn-chili {
+    color: #fff;
+    background: linear-gradient(180deg, #d92c44 0%, #b81c2f 100%);
+    box-shadow: 0 14px 28px -16px rgb(192 31 51 / 0.9);
+  }
+  .btn-teal {
+    color: #fff;
+    background: var(--color-teal);
+    box-shadow: 0 14px 28px -16px rgb(10 106 105 / 0.9);
+  }
+  .btn-ink {
+    color: #FFFDF8;
+    background: #14110C;
+  }
+  .btn-quiet {
+    color: var(--color-ink);
+    background: color-mix(in oklab, var(--color-paper-3) 90%, transparent);
+    border: 1px solid var(--color-chalk);
+  }
+  .btn-link {
+    min-height: 2.75rem;
+    padding: 0 0.5rem;
+    color: var(--color-indigo);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  /* chips / pills */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 1.75rem;
+    padding: 0 0.7rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 650;
+    letter-spacing: 0.02em;
+    background: var(--color-paper-3);
+    color: var(--color-ink);
+  }
+  .pill-teal { background: color-mix(in oklab, var(--color-teal) 14%, transparent); color: var(--color-teal); }
+  .pill-chili { background: color-mix(in oklab, var(--color-chili) 13%, transparent); color: var(--color-chili); }
+  .pill-marigold { background: color-mix(in oklab, var(--color-marigold) 26%, transparent); color: var(--color-warn); }
+
+  /* inputs: 16px to stop iOS zoom, 48px tall */
+  .field {
+    width: 100%;
+    min-height: 3rem;
+    padding: 0.75rem 1rem;
+    border-radius: 1rem;
+    border: 1px solid var(--color-chalk-strong);
+    background: var(--color-paper);
+    font-size: 1rem;
+    color: var(--color-ink);
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+  }
+  .field::placeholder { color: var(--color-ink-faint); }
+  .field:focus {
+    outline: none;
+    border-color: var(--color-indigo);
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-indigo) 18%, transparent);
+  }
+  .field[aria-invalid="true"] { border-color: var(--color-chili); }
+
+  /* price tag: a paper ticket with a punched hole. Drifts slowly, stops for reduced motion. */
+  .price-tag {
+    position: relative;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.25rem;
+    padding: 0.45rem 0.9rem 0.45rem 1.4rem;
+    border-radius: 0.6rem 0.9rem 0.9rem 0.6rem;
+    background: linear-gradient(180deg, #fffdf6, #f7ecd3);
+    color: #23180a;
+    font-family: var(--font-mono);
+    font-weight: 650;
+    box-shadow: 0 10px 20px -14px rgb(27 31 59 / 0.6);
+  }
+  .price-tag::before {
+    content: "";
+    position: absolute;
+    left: 0.55rem;
+    top: 50%;
+    width: 0.42rem;
+    height: 0.42rem;
+    margin-top: -0.21rem;
+    border-radius: 999px;
+    background: var(--color-paper);
+    box-shadow: inset 0 0 0 1px var(--color-chalk-strong);
+  }
+}
+
+@layer utilities {
+  .drift { animation: drift 9s ease-in-out infinite; }
+  .drift-slow { animation: drift 13s ease-in-out infinite reverse; }
+  .rise { animation: rise 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .rise-2 { animation-delay: 80ms; }
+  .rise-3 { animation-delay: 160ms; }
+  .rise-4 { animation-delay: 240ms; }
+}
+
+@keyframes drift {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(-1.5deg); }
+  50% { transform: translate3d(0, -6px, 0) rotate(1.5deg); }
+}
+@keyframes rise {
+  from { opacity: 0; transform: translate3d(0, 14px, 0); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drift, .drift-slow, .rise { animation: none !important; }
+}
+
+/* hide sign-in links once the user is signed in, and the reverse for signed-in-only links */
+html[data-auth='1'] .guest-only { display: none !important; }
+
+/* a torn-off receipt slip: zigzag "teeth" cut into the page's own background colour */
+.ticket-edge {
+  position: relative;
+  padding-bottom: 14px;
+}
+.ticket-edge::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 14px;
+  background:
+    linear-gradient(-45deg, var(--color-paper) 7px, transparent 0) 0 0 / 14px 14px repeat-x,
+    linear-gradient(45deg, var(--color-paper) 7px, transparent 0) 0 0 / 14px 14px repeat-x;
+}
+html:not([data-auth='1']) .auth-only { display: none !important; }

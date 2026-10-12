@@ -1,0 +1,10 @@
+---
+import Base from '@/layouts/Base.astro';
+import InventoryManager from '@/components/vendor/InventoryManager';
+---
+
+<Base title="Inventory · MolTol" description="Add, count and price your stock. Lowest prices stay private.">
+  <section class="mx-auto max-w-5xl px-4 pt-8 sm:px-6 sm:pt-12">
+    <InventoryManager client:load />
+  </section>
+</Base>

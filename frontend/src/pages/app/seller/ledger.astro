@@ -1,0 +1,18 @@
+---
+import Base from '@/layouts/Base.astro';
+import LedgerDashboard from '@/components/vendor/LedgerDashboard';
+import LedgerAsk from '@/components/react/LedgerAsk';
+---
+
+<Base title="Ledger · MolTol" description="Sales, margins, dead stock and restock hints for your stall.">
+  <section class="mx-auto max-w-5xl px-4 pt-8 sm:px-6 sm:pt-12">
+    <LedgerDashboard client:load />
+    <div class="mt-10 max-w-md surface p-5">
+      <h2 class="text-sm font-semibold text-ink">Ask your ledger</h2>
+      <p class="mt-1 text-xs text-ink-faint">Plain questions, plain answers.</p>
+      <div class="mt-4">
+        <LedgerAsk client:load />
+      </div>
+    </div>
+  </section>
+</Base>

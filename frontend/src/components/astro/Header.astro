@@ -1,0 +1,26 @@
+---
+import Logo from './Logo.astro';
+import PrefsControls from '@/components/react/PrefsControls';
+
+interface Props {
+  /** Shell already renders its own nav and account menu — "Open app" would be
+   *  redundant clutter there, and crowds this row enough to overlap the next
+   *  button on narrow phones. Show it only on pages without the shell. */
+  shell?: boolean;
+}
+const { shell = true } = Astro.props;
+---
+
+<header class="sticky top-0 z-40 border-b border-chalk bg-paper-2/95 pt-safe backdrop-blur-xl">
+  <div class="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4 sm:h-[4.5rem] sm:px-8">
+    <Logo />
+    <div class="flex items-center gap-2">
+      <a href="/login" class="guest-only btn btn-quiet !min-h-11 !px-4 !text-sm max-sm:hidden" data-i18n="header.login">Log in</a>
+      <a href="/signup" class="guest-only btn btn-primary !min-h-11 !px-4 !text-sm" data-i18n="header.signup">Get started</a>
+      {!shell && <a href="/app" class="auth-only btn btn-primary !min-h-11 !px-4 !text-sm" data-i18n="header.openApp">Open app</a>}
+      <PrefsControls client:load />
+      <!-- the account menu (role, seller mode, language) is mounted here by the Shell island -->
+      <div id="account-slot" class="relative"></div>
+    </div>
+  </div>
+</header>

@@ -1,0 +1,10 @@
+---
+import Base from '@/layouts/Base.astro';
+import CartSheet from '@/components/buyer/CartSheet';
+---
+
+<Base title="Cart">
+  <section class="mx-auto w-full max-w-md lg:max-w-5xl px-4 pt-6">
+    <CartSheet client:load />
+  </section>
+</Base>

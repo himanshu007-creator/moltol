@@ -1,0 +1,15 @@
+---
+import Base from '@/layouts/Base.astro';
+import CounterPanel from '@/components/react/CounterPanel';
+---
+
+<Base title="Counter Mode · MolTol" description="Scan to haggle in person. Same agents, same proof — now at the counter.">
+  <section class="mx-auto max-w-md px-4 pt-10 sm:px-6 sm:pt-16">
+    <p class="t-label">In person</p>
+    <h1 class="mt-2 t-h1" data-i18n="counter.title">Counter Mode</h1>
+    <p class="mt-2 text-sm text-ink-muted" data-i18n="counter.scan">Scan to haggle in person</p>
+    <div class="mt-8">
+      <CounterPanel client:only="react" />
+    </div>
+  </section>
+</Base>
