@@ -1,0 +1,15 @@
+---
+interface Props {
+  eyebrow?: string;
+  title: string;
+  lede?: string;
+  class?: string;
+}
+const { eyebrow, title, lede, class: cls = '' } = Astro.props;
+---
+
+<header class:list={['rise grid gap-2', cls]}>
+  {eyebrow && <p class="t-label">{eyebrow}</p>}
+  <h1 class="t-h1">{title}</h1>
+  {lede && <p class="t-lede">{lede}</p>}
+</header>

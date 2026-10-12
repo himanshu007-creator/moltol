@@ -1,0 +1,8 @@
+---
+import Base from '@/layouts/Base.astro';
+import HaggleTheatre from '@/components/theatre/HaggleTheatre';
+---
+
+<Base title="The Haggle · MolTol" description="Two agents, one table. Watch them haggle in real time, then settle through PayPal.">
+  <HaggleTheatre client:only="react" />
+</Base>

@@ -1,0 +1,10 @@
+---
+import Base from '@/layouts/Base.astro';
+import PayFlow from '@/components/buyer/PayFlow';
+---
+
+<Base title="Checkout">
+  <section class="mx-auto w-full max-w-md px-4 pt-6">
+    <PayFlow client:load />
+  </section>
+</Base>

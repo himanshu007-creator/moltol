@@ -1,0 +1,10 @@
+---
+import Base from '@/layouts/Base.astro';
+import Insights from '@/components/buyer/Insights';
+---
+
+<Base title="Insights">
+  <section class="mx-auto w-full max-w-md lg:max-w-5xl px-4 pt-6">
+    <Insights client:load />
+  </section>
+</Base>

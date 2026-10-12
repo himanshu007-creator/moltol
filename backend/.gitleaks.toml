@@ -1,0 +1,16 @@
+title = "moltol"
+[extend]
+useDefault = true
+
+# Files that legitimately contain placeholder values, not live secrets.
+# Paths are relative to the repo root (this file now lives in backend/, but
+# gitleaks itself still scans from the repo root).
+[allowlist]
+description = "Examples and fixtures"
+paths = [
+  '''\.env\.example$''',
+  '''backend/infra/terraform/.*\.tfvars\.example$''',
+  '''backend/docs/.*\.md$''',
+  '''backend/packages/paypal/test/.*''',
+  '''backend/packages/policy/test/.*''',
+]
