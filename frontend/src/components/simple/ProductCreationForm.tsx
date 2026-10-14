@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { navigate } from 'astro:transitions/client';
 import { useSimple, type SimpleUnit } from '@/stores/simple';
+import { useSession } from '@/stores/session';
 import { s, type ItemId } from '@/lib/simple/strings';
 import { speakRupaye, speak } from '@/lib/voice';
 import { vegName, type VegSpec } from '@/lib/vision/catalog';
+import { addShopItem } from '@/lib/backend';
 import { BigButton, VoiceCaption, } from './ui';
 
 const UNITS: SimpleUnit[] = ['kg', '500g', 'piece', 'bunch'];
@@ -21,6 +23,8 @@ export default function ProductCreationForm({
   const language = useSimple((x) => x.language);
   const mute = useSimple((x) => x.mute);
   const addProduct = useSimple((x) => x.addProduct);
+  const setBackendId = useSimple((x) => x.setBackendId);
+  const token = useSession((x) => x.token);
   const dict = s(language);
 
   const [name, setName] = useState(initialVeg ? vegName(initialVeg, language) : '');
@@ -35,16 +39,32 @@ export default function ProductCreationForm({
   const save = () => {
     if (!valid) return;
     const id: ItemId = initialVeg ? initialVeg.id : 'cust';
+    const floorCents = Math.round((sellCents * 0.75) / 100) * 100;
     addProduct({
       id,
       sellCents,
-      floorCents: Math.round((sellCents * 0.75) / 100) * 100,
+      floorCents,
       quantity: Math.max(0, Number(quantity || '0')),
       unit,
       hindiName: hindiName.trim() || undefined,
       image: initialVeg?.image,
       vegKey: initialVeg?.key,
     });
+    // Local store is the source of truth for the UI; the backend write is
+    // additive and never blocks it — same fail-soft pattern already used for
+    // the live market-comps lookup elsewhere in this flow.
+    if (token) {
+      void addShopItem(token, {
+        name: name.trim(),
+        sellCents,
+        floorCents,
+        quantity: Math.max(0, Number(quantity || '0')),
+        unit,
+        hindiName: hindiName.trim() || undefined,
+      })
+        .then((item) => setBackendId(id, item.id))
+        .catch(() => {});
+    }
     speakRupaye(sellCents, language, { mute });
     speak(dict.v.scanPublish, language, { mute });
     if (onDone) onDone();

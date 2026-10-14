@@ -132,15 +132,15 @@ export default function InventoryManager() {
 
       {tab === 'stock' && (
         <section aria-label="Stock list" className="grid gap-4">
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search items"
+            aria-label="Search items"
+            className="field sm:max-w-xs"
+          />
           <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search items"
-              aria-label="Search items"
-              className="min-h-11 min-w-0 flex-1 rounded-2xl border border-chalk bg-paper px-3 text-base text-ink sm:max-w-xs"
-            />
             {(['all', 'low', 'out', 'archived'] as const).map((f) => (
               <button
                 key={f}

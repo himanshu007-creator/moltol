@@ -6,7 +6,14 @@ import PageHead from '@/components/astro/PageHead.astro';
 
 <Base title="Nearby">
   <section class="mx-auto w-full max-w-md lg:max-w-6xl px-5 pb-32 pt-8 sm:px-8">
-    <PageHead eyebrow="Nearby" title="Stalls around you" lede="Walk up to a stall, or let the map bring you there. Your agent haggles each item in parallel." />
+    <PageHead
+      eyebrow="Nearby"
+      title="Stalls around you"
+      lede="Walk up to a stall, or let the map bring you there. Your agent haggles each item in parallel."
+      eyebrowKey="discovery.eyebrow"
+      titleKey="discovery.title"
+      ledeKey="discovery.lede"
+    />
     <div class="mt-6">
       <ShopDiscovery client:load />
     </div>

@@ -20,6 +20,13 @@ const EnvSchema = z.object({
   LLM_MODEL: z.string().default(""),
 
   CHANNEL3_API_KEY: z.string().default(""),
+
+  SMTP_HOST: z.string().default("smtp-relay.brevo.com"),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_USER: z.string().default(""),
+  SMTP_PASSWORD: z.string().default(""),
+  EMAIL_FROM: z.string().default("MolTol <no-reply@moltol.app>"),
+  JWT_SECRET: z.string().min(16).default("dev-insecure-change-me-in-prod-0123456789"),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

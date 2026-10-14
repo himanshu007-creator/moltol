@@ -32,7 +32,7 @@ export interface QueuedEve {
   ev: { t: string; [k: string]: unknown };
 }
 
-interface BazaarState {
+export interface BazaarState {
   id: string;
   shopId: string;
   shopName: I18nName;
@@ -255,6 +255,9 @@ function lastPrice(state: NegotiationState): number | null {
   return null;
 }
 
+/** One lane as selectBazaar projects it — the shape BazaarTheatre's cards render from. */
+export type LaneSummary = ReturnType<typeof selectBazaar>['lanes'][number];
+
 /** Live aggregated view for the sticky bar + final summary. */
 export function selectBazaar(s: BazaarState) {
   const lanes = s.lanes.map((l) => {
@@ -277,6 +280,8 @@ export function selectBazaar(s: BazaarState) {
       priceCents: l.state.agreedPriceCents ?? lastPrice(l.state),
       fairness: l.state.fairness,
       turns: l.state.turns,
+      /** the full negotiation state, for the offer chart (HaggleChart) */
+      state: l.state,
     };
   });
   const totalList = lanes.reduce((s2, l) => s2 + l.listCents, 0);

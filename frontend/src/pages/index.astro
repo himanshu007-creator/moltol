@@ -9,72 +9,130 @@ import LanternHero from '@/components/react/LanternHero';
     if (document.documentElement.dataset.auth === '1' && !location.search.includes('stay=1')) location.replace('/app');
   </script>
 
-  <!-- hero: lantern field over a flat marigold wash -->
-  <section class="relative isolate overflow-hidden pt-safe">
-    <div class="absolute inset-x-0 top-0 -z-20 h-[32rem] bg-marigold/25 sm:h-[36rem]" aria-hidden="true"></div>
-    <div class="absolute inset-x-0 top-0 -z-10 h-[32rem] sm:h-[36rem]" aria-hidden="true">
-      <LanternHero client:only="react" />
-    </div>
+  <div class="glow-stage relative isolate">
+    <div class="glow-dust" />
 
-    <div class="relative z-10 mx-auto grid max-w-6xl gap-8 px-5 pb-10 pt-14 sm:px-8 sm:pb-16 sm:pt-20 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
-      <div class="rise grid gap-5 text-ink">
-        <p class="t-label" data-i18n="landing.eyebrow">Hackathon build · sandbox money only</p>
-        <h1 class="t-display text-balance">
-          <span data-i18n="landing.title1">Haggle in the open.</span><br />
-          <span data-i18n="landing.title2">Then pay in one tap.</span>
-        </h1>
-        <p class="max-w-xl text-lg leading-relaxed text-ink-muted" data-i18n="landing.lede">Your agent and the stall's agent bargain item by item. Every deal ends with a proof that neither side was pushed past its limit.</p>
-        <div class="flex flex-wrap gap-3 pt-2">
-          <a href="/signup" class="btn btn-ink !min-h-14 !px-7 text-base" data-i18n="landing.cta.start">Start haggling</a>
-          <a href="/app/buy" class="btn btn-quiet !min-h-14 !px-7 text-base" data-i18n="landing.cta.browse">Browse nearby</a>
+    <!-- hero -->
+    <section class="relative overflow-hidden pt-safe">
+      <div class="pointer-events-none absolute inset-0 -z-10 opacity-80"><LanternHero client:only="react" /></div>
+
+      <div class="relative z-10 mx-auto grid max-w-6xl gap-10 px-5 pb-10 pt-14 sm:px-8 sm:pb-16 sm:pt-20 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
+        <div class="rise grid gap-5">
+          <p class="t-label" data-i18n="landing.eyebrow" style="color: var(--glow-marigold)">Hackathon build · sandbox money only</p>
+          <h1 class="t-display text-balance" style="color: var(--glow-ink)">
+            <span data-i18n="landing.title1">Haggle in the open.</span><br />
+            <span data-i18n="landing.title2">Then pay in one tap.</span>
+          </h1>
+          <p class="max-w-xl text-lg leading-relaxed" data-i18n="landing.lede" style="color: var(--glow-ink-muted)">
+            Your agent and the stall's agent bargain item by item. Every deal ends with a proof that neither side was pushed past its limit.
+          </p>
+          <div class="flex flex-wrap gap-3 pt-2">
+            <a href="/signup" class="btn btn-glow !min-h-14 !px-7 text-base" data-i18n="landing.cta.start">Start haggling</a>
+            <a href="/app/buy" class="btn btn-glow-outline !min-h-14 !px-7 text-base" data-i18n="landing.cta.browse">Browse nearby</a>
+          </div>
+        </div>
+
+        <!-- live lantern preview: the exact visual language of the real overview panel -->
+        <div class="rise rise-2">
+          <div class="relative overflow-hidden rounded-3xl p-6" style="background: color-mix(in oklab, var(--glow-bg-2) 70%, transparent); border: 1px solid color-mix(in oklab, var(--glow-ink) 12%, transparent)">
+            <p class="t-label" data-i18n="landing.demo.caption" style="color: var(--glow-ink-faint)">Live preview</p>
+            <div class="mt-6 flex items-end justify-center gap-10 py-4">
+              <div class="grid justify-items-center gap-3">
+                <div class="landing-orb h-12 w-12 rounded-full" style="animation-delay: -0.5s; color: var(--glow-marigold); background: radial-gradient(circle at 35% 30%, color-mix(in oklab, var(--glow-marigold) 90%, white 10%), var(--glow-marigold))" aria-hidden="true"></div>
+                <span class="text-xs font-semibold" style="color: var(--glow-ink-muted)" data-i18n="landing.demo.item1">Tomatoes</span>
+              </div>
+              <div class="grid justify-items-center gap-3">
+                <div class="landing-orb h-14 w-14 rounded-full" style="animation-delay: -2s; color: var(--glow-teal); background: radial-gradient(circle at 35% 30%, color-mix(in oklab, var(--glow-teal) 90%, white 10%), var(--glow-teal))" aria-hidden="true"></div>
+                <span class="text-xs font-semibold" style="color: var(--glow-ink-muted)" data-i18n="landing.demo.item2">Onions</span>
+              </div>
+              <div class="grid justify-items-center gap-3">
+                <div class="landing-orb h-12 w-12 rounded-full" style="animation-delay: -3.5s; color: var(--glow-indigo); background: radial-gradient(circle at 35% 30%, color-mix(in oklab, var(--glow-indigo) 90%, white 10%), var(--glow-indigo))" aria-hidden="true"></div>
+                <span class="text-xs font-semibold" style="color: var(--glow-ink-muted)" data-i18n="landing.demo.item3">Mangoes</span>
+              </div>
+            </div>
+            <p class="mt-4 text-center text-xs" style="color: var(--glow-ink-faint)">
+              <span data-i18n="landing.demo.agreed">agreed</span> — brightness is progress, every lantern in your basket
+            </p>
+          </div>
         </div>
       </div>
+    </section>
 
-      <div class="rise rise-2 hidden justify-self-end lg:block" aria-hidden="true">
-        <div class="drift grid gap-3 rotate-[-4deg]">
-          <span class="price-tag !text-xl">₹40.00<span class="text-xs font-semibold text-ink-muted">/kg</span></span>
-          <span class="price-tag ml-16 !text-lg">₹35.00<span class="text-xs font-semibold text-ink-muted">/kg</span></span>
-        </div>
+    <!-- two doors -->
+    <section class="relative mx-auto grid max-w-6xl gap-4 px-5 py-16 sm:px-8 md:grid-cols-2">
+      <a
+        href="/signup?role=buyer"
+        class="rise glow-portal glow-portal-marigold group relative overflow-hidden rounded-3xl p-7 sm:p-9"
+        style="background: color-mix(in oklab, var(--glow-marigold) 10%, var(--glow-bg-2)); border: 1px solid color-mix(in oklab, var(--glow-marigold) 35%, transparent)"
+      >
+        <span class="t-label" data-i18n="landing.buyer.kicker" style="color: var(--glow-marigold)">For buyers</span>
+        <h2 class="t-h1 mt-2" data-i18n="landing.buyer.title" style="color: var(--glow-ink)">I want to buy</h2>
+        <p class="mt-2 max-w-sm" data-i18n="landing.buyer.body" style="color: var(--glow-ink-muted)">Walk up to a stall, haggle the whole basket in parallel, and keep a receipt that proves the deal was fair.</p>
+        <span class="btn btn-glow mt-6 w-fit"><span data-i18n="landing.buyer.cta">Find stalls</span> <span aria-hidden="true" class="transition-transform group-hover:translate-x-1">→</span></span>
+      </a>
+      <a
+        href="/signup?role=seller"
+        class="rise rise-2 glow-portal glow-portal-indigo group relative overflow-hidden rounded-3xl p-7 sm:p-9"
+        style="background: color-mix(in oklab, var(--glow-indigo) 10%, var(--glow-bg-2)); border: 1px solid color-mix(in oklab, var(--glow-indigo) 35%, transparent)"
+      >
+        <span class="t-label" data-i18n="landing.seller.kicker" style="color: var(--glow-indigo)">For shopkeepers</span>
+        <h2 class="t-h1 mt-2" data-i18n="landing.seller.title" style="color: var(--glow-ink)">I have a stall</h2>
+        <p class="mt-2 max-w-sm" data-i18n="landing.seller.body" style="color: var(--glow-ink-muted)">Set your lowest prices once. Your agent holds the line and sells the rest. Works with a few big buttons and your voice.</p>
+        <span class="btn btn-glow-outline mt-6 w-fit"><span data-i18n="landing.seller.cta">Open my stall</span> <span aria-hidden="true" class="transition-transform group-hover:translate-x-1">→</span></span>
+      </a>
+    </section>
+
+    <!-- proof of fair deal -->
+    <section class="relative mx-auto max-w-6xl px-5 py-16 sm:px-8" aria-labelledby="proof">
+      <p class="t-label" data-i18n="landing.proof.kicker" style="color: var(--glow-teal)">Under every deal</p>
+      <h2 id="proof" class="t-h1 mt-2" data-i18n="landing.proof.title" style="color: var(--glow-ink)">Proof of Fair Deal</h2>
+      <p class="mt-3 max-w-2xl text-lg leading-relaxed" data-i18n="landing.proof.body" style="color: var(--glow-ink-muted)">
+        Before anyone commits, both limits are sealed. After the deal, they are revealed and checked — so "fair" is something you can verify, not just something you were told.
+      </p>
+      <ol class="mt-8 grid gap-4 md:grid-cols-3">
+        <li class="rounded-3xl p-6" style="background: color-mix(in oklab, var(--glow-bg-2) 70%, transparent); border: 1px solid color-mix(in oklab, var(--glow-marigold) 25%, transparent)">
+          <span class="flex h-10 w-10 items-center justify-center rounded-2xl text-lg" style="background: color-mix(in oklab, var(--glow-marigold) 20%, transparent); color: var(--glow-marigold)" aria-hidden="true">🔒</span>
+          <h3 class="t-h2 mt-4 text-lg" data-i18n="landing.proof.sealed" style="color: var(--glow-ink)">Sealed</h3>
+          <p class="mt-2 text-sm" data-i18n="landing.proof.sealedBody" style="color: var(--glow-ink-faint)">Your limit and the stall's floor are locked in before haggling starts.</p>
+        </li>
+        <li class="rounded-3xl p-6" style="background: color-mix(in oklab, var(--glow-bg-2) 70%, transparent); border: 1px solid color-mix(in oklab, var(--glow-teal) 25%, transparent)">
+          <span class="flex h-10 w-10 items-center justify-center rounded-2xl text-lg" style="background: color-mix(in oklab, var(--glow-teal) 20%, transparent); color: var(--glow-teal)" aria-hidden="true">🔓</span>
+          <h3 class="t-h2 mt-4 text-lg" data-i18n="landing.proof.revealed" style="color: var(--glow-ink)">Revealed</h3>
+          <p class="mt-2 text-sm" data-i18n="landing.proof.revealedBody" style="color: var(--glow-ink-faint)">The moment you agree, both sealed numbers are opened.</p>
+        </li>
+        <li class="rounded-3xl p-6" style="background: color-mix(in oklab, var(--glow-bg-2) 70%, transparent); border: 1px solid color-mix(in oklab, var(--glow-indigo) 25%, transparent)">
+          <span class="flex h-10 w-10 items-center justify-center rounded-2xl text-lg" style="background: color-mix(in oklab, var(--glow-indigo) 20%, transparent); color: var(--glow-indigo)" aria-hidden="true">✅</span>
+          <h3 class="t-h2 mt-4 text-lg" data-i18n="landing.proof.verified" style="color: var(--glow-ink)">Verified</h3>
+          <p class="mt-2 text-sm" data-i18n="landing.proof.verifiedBody" style="color: var(--glow-ink-faint)">The app checks the price never crossed either limit.</p>
+        </li>
+      </ol>
+    </section>
+
+    <!-- three steps, as a glowing timeline -->
+    <section class="relative mx-auto max-w-6xl px-5 pb-20 sm:px-8" aria-labelledby="how">
+      <p class="t-label" data-i18n="landing.steps.kicker" style="color: var(--glow-marigold)">How it works</p>
+      <h2 id="how" class="t-h1 mt-2" data-i18n="landing.steps.title" style="color: var(--glow-ink)">Three steps, one proof</h2>
+      <div class="relative mt-10">
+        <div class="pointer-events-none absolute inset-x-4 top-[1.125rem] hidden h-px md:block" style="background: linear-gradient(90deg, var(--glow-marigold), var(--glow-teal), var(--glow-indigo))"></div>
+        <div class="pointer-events-none absolute left-2 top-5 bottom-5 w-px md:hidden" style="background: linear-gradient(180deg, var(--glow-marigold), var(--glow-teal), var(--glow-indigo))"></div>
+        <ol class="relative grid gap-10 sm:pl-2 md:grid-cols-3 md:gap-6">
+        <li class="relative pl-10 md:pl-0">
+          <span class="absolute left-0 top-0 flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold md:static md:mb-4" style="background: var(--glow-marigold); color: #23180a; box-shadow: 0 0 14px 2px color-mix(in oklab, var(--glow-marigold) 60%, transparent)">1</span>
+          <h3 class="t-h2 text-lg" data-i18n="landing.step1.title" style="color: var(--glow-ink)">Pick the basket</h3>
+          <p class="mt-2 text-sm" data-i18n="landing.step1.body" style="color: var(--glow-ink-faint)">Nearby stalls, live open or closed. Add by the kilo, the piece or the dozen.</p>
+        </li>
+        <li class="relative pl-10 md:pl-0">
+          <span class="absolute left-0 top-0 flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold md:static md:mb-4" style="background: var(--glow-teal); color: #04221d; box-shadow: 0 0 14px 2px color-mix(in oklab, var(--glow-teal) 60%, transparent)">2</span>
+          <h3 class="t-h2 text-lg" data-i18n="landing.step2.title" style="color: var(--glow-ink)">Let the agents haggle</h3>
+          <p class="mt-2 text-sm" data-i18n="landing.step2.body" style="color: var(--glow-ink-faint)">One lane per item, running at once. Take over any lane, or accept all the current offers.</p>
+        </li>
+        <li class="relative pl-10 md:pl-0">
+          <span class="absolute left-0 top-0 flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold md:static md:mb-4" style="background: var(--glow-indigo); color: #0c1230; box-shadow: 0 0 14px 2px color-mix(in oklab, var(--glow-indigo) 60%, transparent)">3</span>
+          <h3 class="t-h2 text-lg" data-i18n="landing.step3.title" style="color: var(--glow-ink)">Pay and verify</h3>
+          <p class="mt-2 text-sm" data-i18n="landing.step3.body" style="color: var(--glow-ink-faint)">One approval in the sandbox wallet. Then the receipt opens and the limits are checked.</p>
+        </li>
+        </ol>
       </div>
-    </div>
-  </section>
-
-  <!-- two doors: buyer and seller -->
-  <section class="mx-auto grid max-w-6xl gap-4 px-5 pb-12 sm:px-8 md:grid-cols-2">
-    <a href="/signup" class="surface-accent rise group relative overflow-hidden p-7 sm:p-9">
-      <span class="t-label text-ink" data-i18n="landing.buyer.kicker">For buyers</span>
-      <h2 class="t-h1 mt-2 text-ink" data-i18n="landing.buyer.title">I want to buy</h2>
-      <p class="mt-2 max-w-sm text-ink" data-i18n="landing.buyer.body">Walk up to a stall, haggle the whole basket in parallel, and keep a receipt that proves the deal was fair.</p>
-      <span class="btn btn-ink mt-6 w-fit"><span data-i18n="landing.buyer.cta">Find stalls</span> <span aria-hidden="true" class="transition-transform group-hover:translate-x-1">→</span></span>
-    </a>
-    <a href="/signup" class="surface-solid rise rise-2 group relative overflow-hidden p-7 sm:p-9">
-      <span class="t-label text-indigo" data-i18n="landing.seller.kicker">For shopkeepers</span>
-      <h2 class="t-h1 mt-2 text-ink" data-i18n="landing.seller.title">I have a stall</h2>
-      <p class="mt-2 max-w-sm text-ink-muted" data-i18n="landing.seller.body">Set your lowest prices once. Your agent holds the line and sells the rest. Works with a few big buttons and your voice.</p>
-      <span class="btn btn-primary mt-6 w-fit"><span data-i18n="landing.seller.cta">Open my stall</span> <span aria-hidden="true" class="transition-transform group-hover:translate-x-1">→</span></span>
-    </a>
-  </section>
-
-  <!-- three steps -->
-  <section class="mx-auto max-w-6xl px-5 pb-20 sm:px-8" aria-labelledby="how">
-    <p class="t-label" data-i18n="landing.steps.kicker">How it works</p>
-    <h2 id="how" class="t-h1 mt-2" data-i18n="landing.steps.title">Three steps, one proof</h2>
-    <ol class="mt-8 grid gap-4 md:grid-cols-3">
-      <li class="surface p-6">
-        <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-marigold text-lg font-bold text-ink">1</span>
-        <h3 class="t-h2 mt-4" data-i18n="landing.step1.title">Pick the basket</h3>
-        <p class="mt-2 text-ink-muted" data-i18n="landing.step1.body">Nearby stalls, live open or closed. Add by the kilo, the piece or the dozen.</p>
-      </li>
-      <li class="surface p-6">
-        <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-teal text-lg font-bold text-white">2</span>
-        <h3 class="t-h2 mt-4" data-i18n="landing.step2.title">Let the agents haggle</h3>
-        <p class="mt-2 text-ink-muted" data-i18n="landing.step2.body">One lane per item, running at once. Take over any lane, or accept all the current offers.</p>
-      </li>
-      <li class="surface p-6">
-        <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-chili text-lg font-bold text-white">3</span>
-        <h3 class="t-h2 mt-4" data-i18n="landing.step3.title">Pay and verify</h3>
-        <p class="mt-2 text-ink-muted" data-i18n="landing.step3.body">One approval in the sandbox wallet. Then the receipt opens and the limits are checked.</p>
-      </li>
-    </ol>
-  </section>
+    </section>
+  </div>
 </Base>

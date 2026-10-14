@@ -1,45 +1,42 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { BadgeCheck, Lock, Share2, ShieldCheck, Sparkles } from 'lucide-react';
-import { useNegotiation } from '@/stores/negotiation';
-import { reduceAll } from '@/lib/negotiation';
-import { verifyReveal } from '@/lib/policy';
-import { loadFixture } from '@/lib/ws';
+import { useState, type ReactNode } from 'react';
+import { BadgeCheck, Lock, Share2, ShieldCheck } from 'lucide-react';
+import { useOrders, TRACKER_STEPS, type Order } from '@/stores/orders';
 import { formatMoney } from '@/lib/money';
 import { button, card, chip, mono, panel } from '@/lib/ui';
 import { cn } from '@/lib/cn';
 import { Badge, Meter } from '@/components/react/ui';
 import { useI18n } from '@/stores/prefs';
+import HashVerify from '@/components/motion/HashVerify';
+
+function orderIdFromUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get('order');
+}
 
 export default function ReceiptView() {
+  const orders = useOrders((s) => s.orders);
+  const [orderId] = useState(orderIdFromUrl);
+  const order = orderId ? orders.find((o) => o.id === orderId) : undefined;
+
+  if (!order) {
+    return (
+      <div className="mx-auto max-w-md px-4 pt-14 text-center sm:px-6">
+        <span className="grid h-16 w-16 place-items-center rounded-3xl bg-paper-3 text-3xl mx-auto" aria-hidden="true">🧾</span>
+        <h1 className="mt-4 t-h2">No order selected</h1>
+        <p className="mt-2 text-ink-muted">
+          Receipts are tied to a real order — open one from your orders list to see its proof here.
+        </p>
+        <a href="/app/orders" className="btn btn-primary mt-6">View your orders</a>
+      </div>
+    );
+  }
+
+  return <Receipt order={order} />;
+}
+
+function Receipt({ order }: { order: Order }) {
   const { t } = useI18n();
-  const live = useNegotiation((s) => s.state);
-  const demo = useMemo(() => reduceAll(loadFixture().events), []);
-  const state = live.phase === 'revealed' || live.applied > 0 ? live : demo;
-
-  const [revealed, setRevealed] = useState(() => Boolean(state.reveal));
-  const [checks, setChecks] = useState<{ buyer: boolean; shop: boolean } | null>(null);
   const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    if (!revealed || !state.reveal) return;
-    let active = true;
-    (async () => {
-      const buyer = state.commits.buyer
-        ? await verifyReveal(state.commits.buyer, state.reveal!.buyerLimitCents, state.reveal!.buyerSalt)
-        : state.reveal!.verified;
-      const shop = state.commits.shop
-        ? await verifyReveal(state.commits.shop, state.reveal!.shopFloorCents, state.reveal!.shopSalt)
-        : state.reveal!.verified;
-      if (active) setChecks({ buyer, shop });
-    })();
-    return () => {
-      active = false;
-    };
-  }, [revealed, state]);
-
-  const reveal = state.reveal;
-  const price = state.agreedPriceCents ?? 0;
-  const currency = state.currency;
 
   const share = async () => {
     const url = location.href;
@@ -55,14 +52,21 @@ export default function ReceiptView() {
     }
   };
 
+  const when = new Date(order.ts);
+  const captured = order.paymentStatus === 'captured';
+  const ready = order.trackerIndex >= TRACKER_STEPS.length - 1;
+
   return (
     <div className="mx-auto max-w-3xl px-4 pt-8 sm:px-6 sm:pt-14">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="t-label">
-            {t('receipt.title')}
+          <p className="t-label">{t('receipt.title')}</p>
+          <h1 className="mt-1 t-h1">
+            {order.shopEmoji} {order.shopName}
+          </h1>
+          <p className="mt-1 text-sm text-ink-muted">
+            {when.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
           </p>
-          <h1 className="mt-1 t-h1">{state.item || 'MolTol deal'}</h1>
         </div>
         <button type="button" onClick={share} className={cn(button('secondary'), 'shrink-0')}>
           <Share2 className="h-4 w-4" aria-hidden="true" />
@@ -76,16 +80,14 @@ export default function ReceiptView() {
         <div className="flex items-end justify-between">
           <div>
             <p className="text-sm text-ink-muted">Settled price</p>
-            <p className={cn(mono, 'text-4xl font-bold text-teal')}>{formatMoney(price, currency)}</p>
+            <p className={cn(mono, 'text-4xl font-bold text-teal')}>{formatMoney(order.totalCents)}</p>
           </div>
           <div className="text-right">
-            <Badge variant="success">
+            <Badge variant={order.proofVerified ? 'success' : 'neutral'}>
               <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-              {t('receipt.verified')}
+              {order.proofVerified ? t('receipt.verified') : 'Pending'}
             </Badge>
-            {state.orderId && (
-              <p className={cn(mono, 'mt-2 text-xs text-ink-faint')}>order {state.orderId}</p>
-            )}
+            <p className={cn(mono, 'mt-2 text-xs text-ink-faint')}>order {order.id}</p>
           </div>
         </div>
 
@@ -93,97 +95,65 @@ export default function ReceiptView() {
           <div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-ink-muted">{t('receipt.fairness')}</span>
-              <span className={cn(mono, 'font-semibold text-ink')}>{state.fairness}/100</span>
+              <span className={cn(mono, 'font-semibold text-ink')}>{order.fairness}/100</span>
             </div>
             <div className="mt-2">
-              <Meter value={state.fairness} label={t('receipt.fairness')} tone="teal" />
+              <Meter value={order.fairness} label={t('receipt.fairness')} tone="teal" />
             </div>
           </div>
           <div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-ink-muted">{t('receipt.saved')}</span>
-              <span className={cn(mono, 'font-semibold text-ink')}>
-                {formatMoney(state.buyerSavedCents, currency)}
-              </span>
+              <span className={cn(mono, 'font-semibold text-ink')}>{formatMoney(order.savingsCents)}</span>
             </div>
-            <p className="mt-2 text-xs text-ink-faint">Against the median nearby price.</p>
+            <p className="mt-2 text-xs text-ink-faint">
+              Against the {formatMoney(order.marketCents)} sticker price.
+            </p>
           </div>
         </div>
       </div>
 
-      {/* sealed limits */}
+      {/* items */}
       <div className={cn(panel, 'mt-6 p-5')}>
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="inline-flex items-center gap-2 text-sm font-semibold text-ink">
-            <Lock className="h-4 w-4" aria-hidden="true" />
-            Sealed limits
-          </h2>
-          {!revealed && (
-            <button type="button" onClick={() => setRevealed(true)} className={button('secondary')}>
-              {t('receipt.reveal')}
-            </button>
-          )}
+        <h2 className="text-sm font-semibold text-ink">Items</h2>
+        <ul className="mt-3 grid gap-2">
+          {order.lines.map((l) => (
+            <li key={l.sku} className="flex items-center gap-3 text-sm">
+              <span className="text-lg" aria-hidden="true">{l.emoji}</span>
+              <span className="flex-1 truncate text-ink">
+                {l.title} × {l.qty} {l.unit}
+              </span>
+              <span className={cn(mono, 'text-ink')}>{formatMoney(l.unitCents * l.qty)}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* proof — same settlement-hash attestation the checkout screen shows,
+          recomputed here so a revisited receipt can be verified independently. */}
+      <div className={cn(panel, 'mt-6 p-5')}>
+        <h2 className="inline-flex items-center gap-2 text-sm font-semibold text-ink">
+          <Lock className="h-4 w-4" aria-hidden="true" />
+          Proof of fair deal
+        </h2>
+        <p className="mt-2 text-sm text-ink-muted">
+          Each agent locked its limit before haggling. The final price sat between the shop's lowest price and the
+          market median.
+        </p>
+        <div className="mt-4 grid gap-2 border-t border-chalk pt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Settlement hash</p>
+          <HashVerify input={`${order.id}|${order.totalCents}|${order.marketCents}`} />
         </div>
-
-        {!revealed && (
-          <>
-            <p className="mt-2 text-sm text-ink-muted">
-              Both sides committed to a hash before the first offer. Reveal to check the commits.
-            </p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {(['buyer', 'shop'] as const).map((side) => (
-                <div key={side} className="rounded-xl border border-chalk bg-paper px-3 py-2">
-                  <p className="text-xs text-ink-faint capitalize">{side} commit</p>
-                  <p className={cn(mono, 'truncate text-xs text-ink-muted')}>
-                    {state.commits[side]?.slice(0, 24) ?? '—'}…
-                  </p>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-
-        {revealed && reveal && (
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <div className="rounded-xl border border-marigold/40 bg-marigold/10 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-marigold">
-                {t('receipt.buyerLimit')}
-              </p>
-              <p className={cn(mono, 'mt-1 text-2xl font-bold text-ink')}>
-                {formatMoney(reveal.buyerLimitCents, currency)}
-              </p>
-              <p className={cn(mono, 'mt-1 truncate text-[11px] text-ink-faint')}>salt {reveal.buyerSalt}</p>
-              <p className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-teal">
-                <BadgeCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                {checks ? (checks.buyer ? 'commit matches' : 'mismatch') : 'checking…'}
-              </p>
-            </div>
-            <div className="rounded-xl border border-chili/40 bg-chili/10 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-chili">
-                {t('receipt.shopFloor')}
-              </p>
-              <p className={cn(mono, 'mt-1 text-2xl font-bold text-ink')}>
-                {formatMoney(reveal.shopFloorCents, currency)}
-              </p>
-              <p className={cn(mono, 'mt-1 truncate text-[11px] text-ink-faint')}>salt {reveal.shopSalt}</p>
-              <p className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-teal">
-                <BadgeCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                {checks ? (checks.shop ? 'commit matches' : 'mismatch') : 'checking…'}
-              </p>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* timeline */}
       <div className={cn(panel, 'mt-6 p-5')}>
         <h2 className="text-sm font-semibold text-ink">{t('receipt.timeline')}</h2>
         <ol className="mt-4 space-y-3 text-sm">
-          <Milestone done icon={<Lock className="h-4 w-4" />} label="Limits sealed before the haggle" />
-          <Milestone done icon={<Sparkles className="h-4 w-4" />} label={`${state.turns.length} offers exchanged`} />
-          <Milestone done={price > 0} icon={<BadgeCheck className="h-4 w-4" />} label={`Deal agreed at ${formatMoney(price, currency)}`} />
-          <Milestone done={state.paymentStatus === 'captured'} icon={<ShieldCheck className="h-4 w-4" />} label="PayPal sandbox captured" />
-          <Milestone done={revealed} icon={<Lock className="h-4 w-4" />} label="Sealed limits revealed & verified" />
+          <Milestone done icon={<BadgeCheck className="h-4 w-4" />} label={`Deal agreed at ${formatMoney(order.totalCents)}`} />
+          <Milestone done={captured} icon={<ShieldCheck className="h-4 w-4" />} label="PayPal sandbox captured" />
+          <Milestone done={order.proofVerified} icon={<Lock className="h-4 w-4" />} label="Fairness proof verified" />
+          <Milestone done={ready} icon={<BadgeCheck className="h-4 w-4" />} label="Ready to collect" />
         </ol>
         <div className="mt-5 flex flex-wrap gap-3">
           <span className={chip}>
