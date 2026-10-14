@@ -1,12 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="MolTol">
   <defs>
-    <linearGradient id="m" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#F2A900" />
-      <stop offset="1" stop-color="#D7263D" />
+    <linearGradient id="badge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFC629" />
+      <stop offset="1" stop-color="#B3001B" />
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="15" fill="#14162B" />
-  <circle cx="25" cy="33" r="15" fill="#F2A900" fill-opacity="0.92" />
-  <circle cx="39" cy="31" r="15" fill="#D7263D" fill-opacity="0.82" style="mix-blend-mode:screen" />
-  <circle cx="32" cy="32" r="6" fill="url(#m)" />
+  <rect width="64" height="64" rx="16" fill="url(#badge)" />
+  <!-- तराज़ू — a bazaar scale: one honest price balancing the other -->
+  <circle cx="32" cy="12" r="3" fill="#FFFDF8" />
+  <line x1="32" y1="15" x2="32" y2="38" stroke="#FFFDF8" stroke-width="2.6" stroke-linecap="round" />
+  <line x1="17" y1="21" x2="47" y2="21" stroke="#FFFDF8" stroke-width="2.6" stroke-linecap="round" />
+  <line x1="17" y1="21" x2="17" y2="32" stroke="#FFFDF8" stroke-width="2.2" stroke-linecap="round" />
+  <line x1="47" y1="21" x2="47" y2="32" stroke="#FFFDF8" stroke-width="2.2" stroke-linecap="round" />
+  <circle cx="17" cy="35" r="5.4" fill="none" stroke="#FFFDF8" stroke-width="2.2" />
+  <circle cx="47" cy="29" r="5.4" fill="none" stroke="#FFFDF8" stroke-width="2.2" />
+  <path d="M24 48 Q32 53 40 48" stroke="#FFFDF8" stroke-width="2.6" stroke-linecap="round" fill="none" />
 </svg>

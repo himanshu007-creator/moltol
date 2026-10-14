@@ -15,6 +15,20 @@
       "when": 1791667905891,
       "tag": "0001_lucky_christian_walker",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792005118987,
+      "tag": "0002_acoustic_captain_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792005484884,
+      "tag": "0003_closed_black_bolt",
+      "breakpoints": true
     }
   ]
 }

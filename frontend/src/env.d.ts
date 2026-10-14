@@ -6,6 +6,8 @@ interface ImportMetaEnv {
   readonly PUBLIC_SIMPLE_AUDIO?: string;
   readonly PUBLIC_API_BASE?: string;
   readonly PUBLIC_WS_BASE?: string;
+  /** The real MolTol backend (apps/api), when running locally or deployed. See lib/backend.ts. */
+  readonly PUBLIC_BACKEND_BASE?: string;
   readonly PUBLIC_PAYPAL_CLIENT_ID?: string;
 }
 

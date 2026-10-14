@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { motion } from 'motion/react';
 import { scaleLinear } from 'd3-scale';
-import { line, curveStepAfter } from 'd3-shape';
+import { line, curveMonotoneX } from 'd3-shape';
 import { max, min } from 'd3-array';
 import type { Market } from '@/lib/events';
 import type { RevealInfo, Series } from '@/lib/negotiation';
@@ -34,7 +34,7 @@ function pathGen(
     .defined((d) => d.v != null)
     .x((d) => scaleX(d.i))
     .y((d) => scaleY(d.v as number))
-    .curve(curveStepAfter);
+    .curve(curveMonotoneX);
   return gen(pts);
 }
 
@@ -114,10 +114,11 @@ export function HaggleChart({
         }`;
 
   return (
-    <figure className="w-full">
+    <figure className="glow-stage w-full overflow-hidden rounded-2xl p-3">
+      <div className="glow-dust" />
       <svg
         viewBox={`0 0 ${W} ${H}`}
-        className="h-auto w-full"
+        className="relative h-auto w-full"
         role="img"
         aria-label={summary}
         preserveAspectRatio="xMidYMid meet"
@@ -130,13 +131,14 @@ export function HaggleChart({
               x2={W - PAD.right}
               y1={y(t)}
               y2={y(t)}
-              stroke="var(--color-chalk)"
+              stroke="var(--glow-ink-faint)"
+              strokeOpacity={0.18}
               strokeWidth={1}
             />
             <text
               x={W - PAD.right + 8}
               y={y(t) + 4}
-              fill="var(--color-ink-faint)"
+              fill="var(--glow-ink-faint)"
               fontSize={12}
               fontFamily="var(--font-mono)"
             >
@@ -153,10 +155,11 @@ export function HaggleChart({
               y={y(market.p75Cents)}
               width={W - PAD.right - PAD.left}
               height={Math.max(1, y(market.p25Cents) - y(market.p75Cents))}
-              fill="var(--color-indigo)"
-              opacity={0.08}
+              fill="var(--glow-indigo)"
+              opacity={0.1}
+              style={{ filter: 'blur(2px)' }}
             />
-            <text x={PAD.left + 6} y={y(market.p75Cents) - 6} fill="var(--color-ink-faint)" fontSize={11}>
+            <text x={PAD.left + 6} y={y(market.p75Cents) - 6} fill="var(--glow-ink-faint)" fontSize={11}>
               market range
             </text>
           </g>
@@ -170,14 +173,15 @@ export function HaggleChart({
               y={y(reveal.buyerLimitCents)}
               width={W - PAD.right - PAD.left}
               height={Math.max(1, y(reveal.shopFloorCents) - y(reveal.buyerLimitCents))}
-              fill="var(--color-teal)"
-              opacity={0.14}
+              fill="var(--glow-teal)"
+              opacity={0.16}
+              style={{ filter: 'blur(2px)' }}
             />
             <text
               x={W - PAD.right - 6}
               y={y(reveal.buyerLimitCents) + 14}
               textAnchor="end"
-              fill="var(--color-teal)"
+              fill="var(--glow-teal)"
               fontSize={11}
             >
               ZOPA
@@ -185,17 +189,21 @@ export function HaggleChart({
           </motion.g>
         )}
 
-        {/* the two trajectories */}
+        {/* the two trajectories — glowing neon lines */}
         {shopPath && (
-          <path d={shopPath} fill="none" stroke="var(--color-chili)" strokeWidth={2.5} strokeLinejoin="round" />
+          <path d={shopPath} className="glow-line-chili" fill="none" stroke="var(--glow-chili)" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
         )}
         {buyerPath && (
-          <path d={buyerPath} fill="none" stroke="var(--color-marigold)" strokeWidth={2.5} strokeLinejoin="round" />
+          <path d={buyerPath} className="glow-line-marigold" fill="none" stroke="var(--glow-marigold)" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
         )}
 
-        {/* end markers */}
-        {lastShop != null && <circle cx={x(n - 1)} cy={y(lastShop)} r={4} fill="var(--color-chili)" />}
-        {lastBuyer != null && <circle cx={x(n - 1)} cy={y(lastBuyer)} r={4} fill="var(--color-marigold)" />}
+        {/* end markers, pulsing while still live */}
+        {lastShop != null && (
+          <circle cx={x(n - 1)} cy={y(lastShop)} r={4} fill="var(--glow-chili)" className={agreedPriceCents == null ? 'glow-pulse-svg' : undefined} style={{ color: 'var(--glow-chili)' }} />
+        )}
+        {lastBuyer != null && (
+          <circle cx={x(n - 1)} cy={y(lastBuyer)} r={4} fill="var(--glow-marigold)" className={agreedPriceCents == null ? 'glow-pulse-svg' : undefined} style={{ color: 'var(--glow-marigold)' }} />
+        )}
 
         {/* settled price pin */}
         {agreedPriceCents != null && (
@@ -205,19 +213,21 @@ export function HaggleChart({
               x2={W - PAD.right}
               y1={y(agreedPriceCents)}
               y2={y(agreedPriceCents)}
-              stroke="var(--color-teal)"
+              stroke="var(--glow-teal)"
               strokeWidth={1.5}
               strokeDasharray="5 5"
+              strokeOpacity={0.7}
             />
-            <circle cx={W - PAD.right} cy={y(agreedPriceCents)} r={5} fill="var(--color-teal)" />
+            <circle cx={W - PAD.right} cy={y(agreedPriceCents)} r={5} fill="var(--glow-teal)" className="glow-pulse-svg" style={{ color: 'var(--glow-teal)' }} />
             <text
               x={W - PAD.right - 8}
               y={y(agreedPriceCents) - 8}
               textAnchor="end"
-              fill="var(--color-teal)"
+              fill="var(--glow-teal)"
               fontSize={13}
               fontWeight={700}
               fontFamily="var(--font-mono)"
+              className="glow-text"
             >
               {formatMoney(agreedPriceCents, currency)}
             </text>
@@ -230,13 +240,14 @@ export function HaggleChart({
           x2={W - PAD.right}
           y1={H - PAD.bottom}
           y2={H - PAD.bottom}
-          stroke="var(--color-chalk-strong)"
+          stroke="var(--glow-ink-faint)"
+          strokeOpacity={0.35}
           strokeWidth={1}
         />
-        <text x={PAD.left} y={H - 12} fill="var(--color-ink-faint)" fontSize={11}>
+        <text x={PAD.left} y={H - 12} fill="var(--glow-ink-faint)" fontSize={11}>
           round 1
         </text>
-        <text x={W - PAD.right} y={H - 12} textAnchor="end" fill="var(--color-ink-faint)" fontSize={11}>
+        <text x={W - PAD.right} y={H - 12} textAnchor="end" fill="var(--glow-ink-faint)" fontSize={11}>
           round {roundsMax}
         </text>
       </svg>
@@ -262,12 +273,12 @@ export function HaggleChart({
         </tbody>
       </table>
 
-      <figcaption className="mt-1 flex flex-wrap items-center justify-center gap-4 text-xs text-ink-faint">
+      <figcaption className="relative mt-1 flex flex-wrap items-center justify-center gap-4 text-xs" style={{ color: 'var(--glow-ink-faint)' }}>
         <span className="inline-flex items-center gap-1.5">
-          <span className="h-0.5 w-4 rounded bg-marigold" /> Buyer
+          <span className="h-0.5 w-4 rounded" style={{ background: 'var(--glow-marigold)' }} /> Buyer
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="h-0.5 w-4 rounded bg-chili" /> Shop
+          <span className="h-0.5 w-4 rounded" style={{ background: 'var(--glow-chili)' }} /> Shop
         </span>
       </figcaption>
     </figure>

@@ -1,4 +1,5 @@
 import cors from "@fastify/cors";
+import jwt from "@fastify/jwt";
 import Fastify from "fastify";
 import { createContainer } from "./container";
 import { createQueueRunner } from "./enqueue";
@@ -30,6 +31,19 @@ async function main(): Promise<void> {
 
   await app.register(cors, {
     origin: env.CORS_ORIGIN === "*" ? true : env.CORS_ORIGIN.split(","),
+  });
+
+  await app.register(jwt, { secret: env.JWT_SECRET });
+  app.decorate("authenticate", async (req, reply) => {
+    try {
+      await req.jwtVerify();
+    } catch {
+      reply.code(401).type("application/problem+json").send({
+        type: "about:blank",
+        title: "unauthorized",
+        status: 401,
+      });
+    }
   });
 
   await app.register(import("@fastify/swagger"), {

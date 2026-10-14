@@ -15,6 +15,7 @@ import { UNITS, type UnitId } from '@/lib/units';
 import { cn } from '@/lib/cn';
 import type { FormValues } from '@/components/vendor/ItemForm';
 import { detectItems, searchItems, toThumb, type Detection, type Suggestion } from '@/lib/vision';
+import { backendComps, type BackendMarketRange } from '@/lib/backend';
 
 export type AddMode = 'manual' | 'csv' | 'voice' | 'snap';
 
@@ -297,6 +298,7 @@ function SnapAdd({ onPrefill }: { onPrefill: (v: Partial<FormValues>) => void })
   const [found, setFound] = useState<Suggestion[] | null>(null);
   const [foundSource, setFoundSource] = useState<keyof typeof SOURCE_LABEL>('catalogue');
   const [searching, setSearching] = useState(false);
+  const [market, setMarket] = useState<BackendMarketRange | null>(null);
 
   const onFile = async (file: File) => {
     setPhase('detecting');
@@ -314,9 +316,11 @@ function SnapAdd({ onPrefill }: { onPrefill: (v: Partial<FormValues>) => void })
   const search = async () => {
     if (!q.trim()) return;
     setSearching(true);
-    const r = await searchItems(q);
+    setMarket(null);
+    const [r, m] = await Promise.all([searchItems(q), backendComps(q)]);
     setFound(r.results);
     setFoundSource(r.source);
+    setMarket(m);
     setSearching(false);
   };
 
@@ -407,6 +411,12 @@ function SnapAdd({ onPrefill }: { onPrefill: (v: Partial<FormValues>) => void })
             <p className="text-xs text-ink-muted"><span className="pill">{SOURCE_LABEL[foundSource]}</span> {found.length} match{found.length === 1 ? '' : 'es'}</p>
             {found.length ? list(found) : <p className="text-sm text-ink-muted">Nothing matched. Add it by hand below.</p>}
           </div>
+        )}
+        {market && (
+          <p className="flex flex-wrap items-center gap-2 rounded-2xl bg-indigo/10 px-3 py-2 text-xs text-ink">
+            <span className="pill pill-indigo">Live backend market</span>
+            {formatMoney(market.p25Cents)}–{formatMoney(market.p75Cents)}, median {formatMoney(market.medianCents)}
+          </p>
         )}
       </form>
     </div>
