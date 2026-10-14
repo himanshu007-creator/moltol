@@ -12,16 +12,36 @@ import {
 } from "@moltol/contracts";
 import type { Container } from "./container";
 import { hashPassword, verifyPassword } from "./password";
-import { generateOtp, hashOtp, OTP_MAX_ATTEMPTS, OTP_RESEND_COOLDOWN_MS, OTP_TTL_MS, secondsUntil } from "./otp";
+import {
+  generateOtp,
+  hashOtp,
+  OTP_MAX_ATTEMPTS,
+  OTP_RESEND_COOLDOWN_MS,
+  OTP_TTL_MS,
+  secondsUntil,
+} from "./otp";
 import { sendOtpEmail } from "./email";
 
 function sendProblem(reply: FastifyReply, status: number, title: string, detail?: string): void {
-  reply.code(status).type("application/problem+json").send(problem(status, title, detail));
+  reply
+    .code(status)
+    .type("application/problem+json")
+    .send(problem(status, title, detail));
 }
 
-async function issueOtp(container: Container, userId: string, email: string, purpose: OtpPurpose): Promise<void> {
+async function issueOtp(
+  container: Container,
+  userId: string,
+  email: string,
+  purpose: OtpPurpose,
+): Promise<void> {
   const code = generateOtp();
-  await container.store.putOtp(userId, purpose, hashOtp(code, userId), new Date(Date.now() + OTP_TTL_MS));
+  await container.store.putOtp(
+    userId,
+    purpose,
+    hashOtp(code, userId),
+    new Date(Date.now() + OTP_TTL_MS),
+  );
   await sendOtpEmail(container.env, email, code, purpose);
 }
 
@@ -33,12 +53,16 @@ async function activeCooldown(container: Container, userId: string): Promise<num
   return remaining > 0 ? remaining : null;
 }
 
-export async function registerAuthRoutes(app: FastifyInstance, container: Container): Promise<void> {
+export async function registerAuthRoutes(
+  app: FastifyInstance,
+  container: Container,
+): Promise<void> {
   const { store } = container;
 
   app.post("/v1/auth/signup", async (req, reply) => {
     const parsed = SignupRequestSchema.safeParse(req.body);
-    if (!parsed.success) return sendProblem(reply, 400, "invalid_body", JSON.stringify(parsed.error.flatten()));
+    if (!parsed.success)
+      return sendProblem(reply, 400, "invalid_body", JSON.stringify(parsed.error.flatten()));
 
     const normalized = normalizeEmail(parsed.data.email);
     if (!normalized) return sendProblem(reply, 400, "invalid_email");
@@ -50,11 +74,21 @@ export async function registerAuthRoutes(app: FastifyInstance, container: Contai
     let userId: string;
     if (existing) {
       if (existing.emailVerifiedAt) {
-        return sendProblem(reply, 409, "account_exists", "An account already exists for this email. Log in instead.");
+        return sendProblem(
+          reply,
+          409,
+          "account_exists",
+          "An account already exists for this email. Log in instead.",
+        );
       }
       const cooldown = await activeCooldown(container, existing.id);
       if (cooldown !== null) {
-        return reply.code(429).send({ type: "about:blank", title: "resend_cooldown", status: 429, secondsRemaining: cooldown });
+        return reply.code(429).send({
+          type: "about:blank",
+          title: "resend_cooldown",
+          status: 429,
+          secondsRemaining: cooldown,
+        });
       }
       await store.setUserPassword(existing.id, passwordHash);
       userId = existing.id;
@@ -73,7 +107,8 @@ export async function registerAuthRoutes(app: FastifyInstance, container: Contai
 
   app.post("/v1/auth/otp/verify", async (req, reply) => {
     const parsed = VerifyOtpRequestSchema.safeParse(req.body);
-    if (!parsed.success) return sendProblem(reply, 400, "invalid_body", JSON.stringify(parsed.error.flatten()));
+    if (!parsed.success)
+      return sendProblem(reply, 400, "invalid_body", JSON.stringify(parsed.error.flatten()));
 
     const normalized = normalizeEmail(parsed.data.email);
     if (!normalized) return sendProblem(reply, 400, "invalid_email");
@@ -85,14 +120,20 @@ export async function registerAuthRoutes(app: FastifyInstance, container: Contai
     if (!otp || otp.purpose !== "signup" || otp.consumedAt) {
       return sendProblem(reply, 400, "no_active_code", "Request a new code.");
     }
-    if (otp.expiresAt.getTime() < Date.now()) return sendProblem(reply, 400, "code_expired", "Request a new code.");
+    if (otp.expiresAt.getTime() < Date.now())
+      return sendProblem(reply, 400, "code_expired", "Request a new code.");
     if (otp.attempts >= OTP_MAX_ATTEMPTS) {
       return sendProblem(reply, 400, "too_many_attempts", "Request a new code.");
     }
 
     if (otp.codeHash !== hashOtp(parsed.data.code, user.id)) {
       await store.incrementOtpAttempts(otp.id);
-      return sendProblem(reply, 400, "wrong_code", `${OTP_MAX_ATTEMPTS - otp.attempts - 1} attempts left.`);
+      return sendProblem(
+        reply,
+        400,
+        "wrong_code",
+        `${OTP_MAX_ATTEMPTS - otp.attempts - 1} attempts left.`,
+      );
     }
 
     await store.consumeOtp(otp.id);
@@ -104,7 +145,8 @@ export async function registerAuthRoutes(app: FastifyInstance, container: Contai
 
   app.post("/v1/auth/otp/resend", async (req, reply) => {
     const parsed = ResendOtpRequestSchema.safeParse(req.body);
-    if (!parsed.success) return sendProblem(reply, 400, "invalid_body", JSON.stringify(parsed.error.flatten()));
+    if (!parsed.success)
+      return sendProblem(reply, 400, "invalid_body", JSON.stringify(parsed.error.flatten()));
 
     const normalized = normalizeEmail(parsed.data.email);
     if (!normalized) return sendProblem(reply, 400, "invalid_email");
@@ -114,16 +156,25 @@ export async function registerAuthRoutes(app: FastifyInstance, container: Contai
 
     const cooldown = await activeCooldown(container, user.id);
     if (cooldown !== null) {
-      return reply.code(429).send({ type: "about:blank", title: "resend_cooldown", status: 429, secondsRemaining: cooldown });
+      return reply.code(429).send({
+        type: "about:blank",
+        title: "resend_cooldown",
+        status: 429,
+        secondsRemaining: cooldown,
+      });
     }
 
     await issueOtp(container, user.id, user.email, "signup");
-    return reply.send({ ok: true, resendCooldownSeconds: Math.round(OTP_RESEND_COOLDOWN_MS / 1000) });
+    return reply.send({
+      ok: true,
+      resendCooldownSeconds: Math.round(OTP_RESEND_COOLDOWN_MS / 1000),
+    });
   });
 
   app.post("/v1/auth/login", async (req, reply) => {
     const parsed = LoginRequestSchema.safeParse(req.body);
-    if (!parsed.success) return sendProblem(reply, 400, "invalid_body", JSON.stringify(parsed.error.flatten()));
+    if (!parsed.success)
+      return sendProblem(reply, 400, "invalid_body", JSON.stringify(parsed.error.flatten()));
 
     const normalized = normalizeEmail(parsed.data.email);
     if (!normalized) return sendProblem(reply, 401, "invalid_credentials");
@@ -145,7 +196,8 @@ export async function registerAuthRoutes(app: FastifyInstance, container: Contai
 
   app.post("/v1/auth/password/forgot", async (req, reply) => {
     const parsed = ForgotPasswordRequestSchema.safeParse(req.body);
-    if (!parsed.success) return sendProblem(reply, 400, "invalid_body", JSON.stringify(parsed.error.flatten()));
+    if (!parsed.success)
+      return sendProblem(reply, 400, "invalid_body", JSON.stringify(parsed.error.flatten()));
 
     const normalized = normalizeEmail(parsed.data.email);
     // Never reveal whether an account exists for this address.
@@ -164,7 +216,8 @@ export async function registerAuthRoutes(app: FastifyInstance, container: Contai
 
   app.post("/v1/auth/password/reset", async (req, reply) => {
     const parsed = ResetPasswordRequestSchema.safeParse(req.body);
-    if (!parsed.success) return sendProblem(reply, 400, "invalid_body", JSON.stringify(parsed.error.flatten()));
+    if (!parsed.success)
+      return sendProblem(reply, 400, "invalid_body", JSON.stringify(parsed.error.flatten()));
 
     const normalized = normalizeEmail(parsed.data.email);
     if (!normalized) return sendProblem(reply, 400, "invalid_email");
@@ -176,13 +229,19 @@ export async function registerAuthRoutes(app: FastifyInstance, container: Contai
     if (!otp || otp.purpose !== "reset" || otp.consumedAt) {
       return sendProblem(reply, 400, "no_active_code", "Request a new code.");
     }
-    if (otp.expiresAt.getTime() < Date.now()) return sendProblem(reply, 400, "code_expired", "Request a new code.");
+    if (otp.expiresAt.getTime() < Date.now())
+      return sendProblem(reply, 400, "code_expired", "Request a new code.");
     if (otp.attempts >= OTP_MAX_ATTEMPTS) {
       return sendProblem(reply, 400, "too_many_attempts", "Request a new code.");
     }
     if (otp.codeHash !== hashOtp(parsed.data.code, user.id)) {
       await store.incrementOtpAttempts(otp.id);
-      return sendProblem(reply, 400, "wrong_code", `${OTP_MAX_ATTEMPTS - otp.attempts - 1} attempts left.`);
+      return sendProblem(
+        reply,
+        400,
+        "wrong_code",
+        `${OTP_MAX_ATTEMPTS - otp.attempts - 1} attempts left.`,
+      );
     }
 
     await store.consumeOtp(otp.id);

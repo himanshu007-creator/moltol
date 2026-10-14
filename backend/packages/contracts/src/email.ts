@@ -58,9 +58,17 @@ export function normalizeEmail(
   const cleanedDomain = cleanDomain(domain);
   if (whitelistedDomains.has(cleanedDomain)) {
     const lowerLocal = local.toLowerCase();
-    return { normalized: `${lowerLocal}@${cleanedDomain}`, local: lowerLocal, domain: cleanedDomain };
+    return {
+      normalized: `${lowerLocal}@${cleanedDomain}`,
+      local: lowerLocal,
+      domain: cleanedDomain,
+    };
   }
 
   const cleanedLocal = cleanLocalPart(local).toLowerCase();
-  return { normalized: `${cleanedLocal}@${cleanedDomain}`, local: cleanedLocal, domain: cleanedDomain };
+  return {
+    normalized: `${cleanedLocal}@${cleanedDomain}`,
+    local: cleanedLocal,
+    domain: cleanedDomain,
+  };
 }

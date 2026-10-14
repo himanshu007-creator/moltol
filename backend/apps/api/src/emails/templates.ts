@@ -14,7 +14,9 @@ export function renderSignupOtpEmail(code: string): RenderedEmail {
     bodyHtml:
       paragraph("Enter this code to finish creating your MolTol account:") +
       codeBlock(code) +
-      mutedParagraph("This code expires in 10 minutes. Didn't sign up? You can safely ignore this email."),
+      mutedParagraph(
+        "This code expires in 10 minutes. Didn't sign up? You can safely ignore this email.",
+      ),
   });
   const text = `Your MolTol verification code is ${code}. It expires in 10 minutes.`;
   return { subject: `${code} is your MolTol verification code`, html, text };

@@ -360,7 +360,10 @@ export class MoltolStore {
   }
 
   async setUserPassword(id: string, passwordHash: string): Promise<void> {
-    await this.db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, id));
+    await this.db
+      .update(users)
+      .set({ passwordHash, updatedAt: new Date() })
+      .where(eq(users.id, id));
   }
 
   async markEmailVerified(id: string): Promise<void> {
@@ -462,7 +465,10 @@ export class MoltolStore {
   }
 
   async deleteShopItem(id: string): Promise<boolean> {
-    const rows = await this.db.delete(shopItems).where(eq(shopItems.id, id)).returning({ id: shopItems.id });
+    const rows = await this.db
+      .delete(shopItems)
+      .where(eq(shopItems.id, id))
+      .returning({ id: shopItems.id });
     return rows.length > 0;
   }
 

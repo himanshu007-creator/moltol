@@ -10,7 +10,10 @@ import {
 import type { Container } from "./container";
 
 function sendProblem(reply: FastifyReply, status: number, title: string, detail?: string): void {
-  reply.code(status).type("application/problem+json").send(problem(status, title, detail));
+  reply
+    .code(status)
+    .type("application/problem+json")
+    .send(problem(status, title, detail));
 }
 
 function toShopItemContract(row: {
@@ -27,15 +30,20 @@ function toShopItemContract(row: {
   return row;
 }
 
-export async function registerShopRoutes(app: FastifyInstance, container: Container): Promise<void> {
+export async function registerShopRoutes(
+  app: FastifyInstance,
+  container: Container,
+): Promise<void> {
   const { store } = container;
 
   app.post("/v1/shops/me", { preHandler: [app.authenticate] }, async (req, reply) => {
     const parsed = CreateShopRequestSchema.safeParse(req.body);
-    if (!parsed.success) return sendProblem(reply, 400, "invalid_body", JSON.stringify(parsed.error.flatten()));
+    if (!parsed.success)
+      return sendProblem(reply, 400, "invalid_body", JSON.stringify(parsed.error.flatten()));
 
     const existing = await store.getShopByUserId(req.user.sub);
-    if (existing) return reply.send({ id: existing.id, name: existing.name, emoji: existing.emoji });
+    if (existing)
+      return reply.send({ id: existing.id, name: existing.name, emoji: existing.emoji });
 
     const shop = await store.createShop({ userId: req.user.sub, ...parsed.data });
     return reply.code(201).send({ id: shop.id, name: shop.name, emoji: shop.emoji });
@@ -58,7 +66,8 @@ export async function registerShopRoutes(app: FastifyInstance, container: Contai
     if (!shop) return sendProblem(reply, 404, "no_shop", "Create a shop first.");
 
     const parsed = CreateShopItemRequestSchema.safeParse(req.body);
-    if (!parsed.success) return sendProblem(reply, 400, "invalid_body", JSON.stringify(parsed.error.flatten()));
+    if (!parsed.success)
+      return sendProblem(reply, 400, "invalid_body", JSON.stringify(parsed.error.flatten()));
     if (parsed.data.sellCents <= parsed.data.floorCents) {
       return sendProblem(reply, 400, "invalid_price", "sellCents must be greater than floorCents.");
     }
@@ -78,12 +87,18 @@ export async function registerShopRoutes(app: FastifyInstance, container: Contai
       if (!existing || existing.shopId !== shop.id) return sendProblem(reply, 404, "not_found");
 
       const parsed = UpdateShopItemRequestSchema.safeParse(req.body);
-      if (!parsed.success) return sendProblem(reply, 400, "invalid_body", JSON.stringify(parsed.error.flatten()));
+      if (!parsed.success)
+        return sendProblem(reply, 400, "invalid_body", JSON.stringify(parsed.error.flatten()));
 
       const sellCents = parsed.data.sellCents ?? existing.sellCents;
       const floorCents = parsed.data.floorCents ?? existing.floorCents;
       if (sellCents <= floorCents) {
-        return sendProblem(reply, 400, "invalid_price", "sellCents must be greater than floorCents.");
+        return sendProblem(
+          reply,
+          400,
+          "invalid_price",
+          "sellCents must be greater than floorCents.",
+        );
       }
 
       const updated = await store.updateShopItem(req.params.itemId, parsed.data);

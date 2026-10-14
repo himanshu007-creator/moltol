@@ -1,7 +1,11 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import type { OtpPurpose } from "@moltol/contracts";
 import type { Env } from "./env";
-import { renderPasswordResetEmail, renderSignupOtpEmail, type RenderedEmail } from "./emails/templates";
+import {
+  renderPasswordResetEmail,
+  renderSignupOtpEmail,
+  type RenderedEmail,
+} from "./emails/templates";
 
 function renderOtpEmail(purpose: OtpPurpose, code: string): RenderedEmail {
   return purpose === "reset" ? renderPasswordResetEmail(code) : renderSignupOtpEmail(code);
@@ -25,7 +29,12 @@ function getTransporter(env: Env): Transporter {
  * (local dev), logs the code instead of sending — same graceful-degrade
  * pattern as Channel3/LLM/PayPal below.
  */
-export async function sendOtpEmail(env: Env, to: string, code: string, purpose: OtpPurpose): Promise<void> {
+export async function sendOtpEmail(
+  env: Env,
+  to: string,
+  code: string,
+  purpose: OtpPurpose,
+): Promise<void> {
   const { subject, html, text } = renderOtpEmail(purpose, code);
   if (!env.SMTP_USER || !env.SMTP_PASSWORD) {
     console.log(`[otp:${purpose}] SMTP not configured — code for ${to} is ${code}`);
