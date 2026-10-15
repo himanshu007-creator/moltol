@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { formatCents } from "@moltol/contracts";
 import type { TurnContext, TurnGenerator } from "@moltol/engine";
 import { cannedTurn } from "./fallback";
 
@@ -32,10 +33,10 @@ export interface LlmConfig {
  * nudge within the band). See AGENTS.md invariant #2.
  */
 function buildMessages(ctx: TurnContext) {
+  const money = (cents: number) => formatCents(cents, ctx.currency);
   const historyLines = ctx.history
     .map(
-      (h) =>
-        `${h.actor}: ${h.priceCents !== undefined ? `$${(h.priceCents / 100).toFixed(2)}` : "—"} (${h.message})`,
+      (h) => `${h.actor}: ${h.priceCents !== undefined ? money(h.priceCents) : "—"} (${h.message})`,
     )
     .join("\n");
   return [
@@ -52,10 +53,11 @@ function buildMessages(ctx: TurnContext) {
       role: "user" as const,
       content: [
         `You are the ${ctx.actor}. Persona: ${ctx.persona}. Round ${ctx.round + 1}/${ctx.roundsMax}.`,
-        `Market: median $${(ctx.market.medianCents / 100).toFixed(2)}, p25 $${(ctx.market.p25Cents / 100).toFixed(2)}, p75 $${(ctx.market.p75Cents / 100).toFixed(2)}.`,
-        `Policy price for your turn: ${ctx.policyPriceCents} cents. Stay within ±3%.`,
+        `Currency: ${ctx.currency}. All priceCents values are integer minor units of it.`,
+        `Market: median ${money(ctx.market.medianCents)}, p25 ${money(ctx.market.p25Cents)}, p75 ${money(ctx.market.p75Cents)}.`,
+        `Policy price for your turn: ${ctx.policyPriceCents} (${money(ctx.policyPriceCents)}). Stay within ±3%.`,
         ctx.opponentLastPriceCents !== undefined
-          ? `Opponent's last price: ${ctx.opponentLastPriceCents} cents.`
+          ? `Opponent's last price: ${ctx.opponentLastPriceCents} (${money(ctx.opponentLastPriceCents)}).`
           : "You open the negotiation.",
         historyLines ? `History:\n${historyLines}` : "No turns yet.",
       ].join("\n"),

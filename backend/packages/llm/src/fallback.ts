@@ -1,5 +1,5 @@
 import type { TurnContext, TurnGenerator, TurnSuggestion } from "@moltol/engine";
-import type { Tactic } from "@moltol/contracts";
+import { formatCents, type Tactic } from "@moltol/contracts";
 
 const TACTICS: Tactic[] = [
   "anchor",
@@ -19,14 +19,13 @@ const TONE: Record<string, string> = {
   analyst: "precise and numbers-first",
 };
 
-const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
-
 /**
  * Offline, deterministic narrator. It never sees a sealed limit. On the opening
  * turn it deliberately proposes a price well outside the guard band, so the
  * demo always shows the guard rejecting a greedy suggestion and falling back.
  */
 export function cannedTurn(ctx: TurnContext): TurnSuggestion {
+  const money = (cents: number) => formatCents(cents, ctx.currency);
   const personaNote = TONE[ctx.persona] ?? "neutral";
   if (ctx.actor === "buyer" && ctx.round === 0) {
     return {
@@ -46,7 +45,7 @@ export function cannedTurn(ctx: TurnContext): TurnSuggestion {
   return {
     priceCents: ctx.policyPriceCents,
     message: `Best I can do is ${money(ctx.policyPriceCents)} — it's already tight at that.`,
-    tactic: ctx.round >= ctx.roundsMax - 1 ? "final-offer" : "loyalty",
+    tactic: ctx.round >= ctx.roundsMax - 2 ? "final-offer" : "loyalty",
   };
 }
 
