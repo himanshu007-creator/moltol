@@ -15,7 +15,6 @@ export const ROUTES = {
   checkout: '/app/checkout',
   orders: '/app/orders',
   insights: '/app/insights',
-  haggle: '/app/haggle',
   receipt: '/app/receipt',
   counter: '/app/counter',
   seller: {
@@ -57,7 +56,8 @@ export const LEGACY: Record<string, string> = {
   '/checkout': ROUTES.checkout,
   '/orders': ROUTES.orders,
   '/insights': ROUTES.insights,
-  '/haggle': ROUTES.haggle,
+  // single-item haggle was superseded by the basket model before this map existed
+  '/haggle': ROUTES.bazaar,
   '/receipt': ROUTES.receipt,
   '/counter': ROUTES.counter,
   '/inventory': ROUTES.seller.inventory,

@@ -78,6 +78,7 @@ export function Steps({ total, current }: { total: number; current: number }) {
       {Array.from({ length: total }).map((_, i) => (
         <span
           key={i}
+          role="listitem"
           aria-current={i === current ? 'step' : undefined}
           className={`h-2 flex-1 rounded-full transition ${i <= current ? 'bg-marigold' : 'bg-chalk'}`}
         />

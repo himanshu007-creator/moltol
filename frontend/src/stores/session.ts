@@ -29,6 +29,10 @@ export interface SessionState {
   name: string;
   phone: string;
   avatarEmoji: string;
+  /** Real backend account, once signed up/logged in via AuthForm. Empty/null
+   *  for the local-only demo account (provisionDemo) and any pre-backend state. */
+  email: string;
+  token: string | null;
   activeRole: Role;
   buyerProfileDone: boolean;
   sellerProfileDone: boolean;
@@ -44,6 +48,8 @@ export interface SessionState {
   everLoggedOut: boolean;
 
   login: (name: string, phone: string, avatarEmoji?: string) => void;
+  /** Real backend login/signup (email + JWT), distinct from the phone-only demo `login`. */
+  loginWithBackend: (email: string, token: string, avatarEmoji?: string) => void;
   /** Auto-log in as the demo dual-role account, once, on a true first visit only
    *  (never after an explicit logout — see Shell.tsx). Local, no-backend testing. */
   provisionDemo: () => void;
@@ -64,6 +70,8 @@ export const useSession = create<SessionState>()(
       name: '',
       phone: '',
       avatarEmoji: '🙍🏽‍♀️',
+      email: '',
+      token: null,
       activeRole: 'buyer',
       buyerProfileDone: false,
       sellerProfileDone: false,
@@ -75,6 +83,9 @@ export const useSession = create<SessionState>()(
 
       login: (name, phone, avatarEmoji = '🙍🏽‍♀️') =>
         set({ loggedIn: true, name, phone, avatarEmoji }),
+
+      loginWithBackend: (email, token, avatarEmoji = '🙍🏽‍♀️') =>
+        set({ loggedIn: true, name: email.split('@')[0] ?? email, email, token, avatarEmoji }),
 
       provisionDemo: () => {
         if (get().everLoggedOut || get().loggedIn) return;
@@ -96,6 +107,8 @@ export const useSession = create<SessionState>()(
           name: '',
           phone: '',
           avatarEmoji: '🙍🏽‍♀️',
+          email: '',
+          token: null,
           activeRole: 'buyer',
           buyerProfileDone: false,
           sellerProfileDone: false,
@@ -121,17 +134,21 @@ export const useSession = create<SessionState>()(
     }),
     {
       name: 'moltol-session',
-      version: 3,
+      version: 4,
       storage: createJSONStorage(() => idbStorage),
       // v1 stored flat paths like /buy and /simple; map them to the /app routes.
       // v3 adds everLoggedOut — anyone migrating from an older version has never
       // used the new logout-wipe/auto-provision pair, so it defaults to false.
+      // v4 adds email/token for real backend accounts — empty/null for anyone
+      // migrating from before auth was real (the demo account, mainly).
       migrate: (state) => {
         const st = state as Partial<SessionState> & { lastRoute?: { buyer?: string; seller?: string } };
         return {
           ...st,
           sellerMode: st.sellerMode ?? null,
           everLoggedOut: st.everLoggedOut ?? false,
+          email: st.email ?? '',
+          token: st.token ?? null,
           lastRoute: {
             buyer: migratePath(st.lastRoute?.buyer ?? '/buy'),
             seller: migratePath(st.lastRoute?.seller ?? '/simple'),

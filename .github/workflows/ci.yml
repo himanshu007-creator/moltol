@@ -37,6 +37,12 @@ jobs:
 
   secrets:
     runs-on: ubuntu-latest
+    # gitleaks-action calls the GitHub API to diff just the PR's commits;
+    # without this it 403s with "Resource not accessible by integration"
+    # since the default GITHUB_TOKEN has no pull-requests scope.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:

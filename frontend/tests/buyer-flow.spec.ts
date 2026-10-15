@@ -44,11 +44,9 @@ test('buyer: haggle all, take one lane over, pay, land on orders', async ({ page
   await expect(page.getByRole('button', { name: /Pay now/ })).toBeVisible();
   await page.getByRole('button', { name: /Pay now/ }).click();
 
-  // paying -> proof -> done
+  // paying -> proof (auto-plays, no click) -> done
   await expect(page.getByText('Sandbox demo')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole('button', { name: 'See my receipt' })).toBeVisible({ timeout: 20_000 });
-  await page.getByRole('button', { name: 'See my receipt' }).click();
-  await expect(page.getByText('Paid and proved')).toBeVisible();
+  await expect(page.getByText('Paid and proved')).toBeVisible({ timeout: 20_000 });
 
   // wait for the hash-verify animation to settle before scrolling to the next button
   await expect(page.getByText('Verified SHA-256')).toBeVisible({ timeout: 10_000 });

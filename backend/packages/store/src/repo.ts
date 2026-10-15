@@ -10,15 +10,19 @@ import type {
   Side,
 } from "@moltol/contracts";
 import { sealAad } from "@moltol/config";
-import { and, asc, eq, inArray, lt, sql as raw } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, sql as raw } from "drizzle-orm";
 import type { Db, Sql } from "./client";
 import { decryptLimit, encryptLimit, parseSealKey } from "./seal";
 import {
   negotiations,
   negotiationEvents,
+  otpCodes,
   payments,
   proofs,
   sealedSecrets,
+  shopItems,
+  shops,
+  users,
   webhookEvents,
 } from "./schema";
 
@@ -333,6 +337,139 @@ export class MoltolStore {
       .where(eq(proofs.negotiationId, negotiationId))
       .limit(1);
     return rows[0] ?? null;
+  }
+
+  /* --------------------------------- users --------------------------------- */
+
+  async createUser(input: { email: string; passwordHash: string }) {
+    const rows = await this.db
+      .insert(users)
+      .values({ email: input.email, passwordHash: input.passwordHash })
+      .returning();
+    return rows[0]!;
+  }
+
+  async getUserByEmail(email: string) {
+    const rows = await this.db.select().from(users).where(eq(users.email, email)).limit(1);
+    return rows[0] ?? null;
+  }
+
+  async getUserById(id: string) {
+    const rows = await this.db.select().from(users).where(eq(users.id, id)).limit(1);
+    return rows[0] ?? null;
+  }
+
+  async setUserPassword(id: string, passwordHash: string): Promise<void> {
+    await this.db
+      .update(users)
+      .set({ passwordHash, updatedAt: new Date() })
+      .where(eq(users.id, id));
+  }
+
+  async markEmailVerified(id: string): Promise<void> {
+    await this.db
+      .update(users)
+      .set({ emailVerifiedAt: new Date(), updatedAt: new Date() })
+      .where(eq(users.id, id));
+  }
+
+  /* -------------------------------- OTP codes ------------------------------ */
+
+  /** One active code per user: delete-then-insert instead of accumulating rows. */
+  async putOtp(userId: string, purpose: string, codeHash: string, expiresAt: Date): Promise<void> {
+    await this.db.delete(otpCodes).where(eq(otpCodes.userId, userId));
+    await this.db.insert(otpCodes).values({ userId, purpose, codeHash, expiresAt });
+  }
+
+  async getOtp(userId: string) {
+    const rows = await this.db
+      .select()
+      .from(otpCodes)
+      .where(eq(otpCodes.userId, userId))
+      .orderBy(desc(otpCodes.createdAt))
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
+  async incrementOtpAttempts(id: string): Promise<void> {
+    await this.db
+      .update(otpCodes)
+      .set({ attempts: raw`${otpCodes.attempts} + 1` })
+      .where(eq(otpCodes.id, id));
+  }
+
+  async consumeOtp(id: string): Promise<void> {
+    await this.db.update(otpCodes).set({ consumedAt: new Date() }).where(eq(otpCodes.id, id));
+  }
+
+  /* --------------------------------- shops ---------------------------------- */
+
+  async createShop(input: { userId: string; name: string; emoji: string }) {
+    const rows = await this.db.insert(shops).values(input).returning();
+    return rows[0]!;
+  }
+
+  async getShopByUserId(userId: string) {
+    const rows = await this.db.select().from(shops).where(eq(shops.userId, userId)).limit(1);
+    return rows[0] ?? null;
+  }
+
+  async getShopById(id: string) {
+    const rows = await this.db.select().from(shops).where(eq(shops.id, id)).limit(1);
+    return rows[0] ?? null;
+  }
+
+  /* ------------------------------ shop items --------------------------------- */
+
+  async createShopItem(input: {
+    shopId: string;
+    name: string;
+    emoji?: string;
+    sellCents: number;
+    floorCents: number;
+    quantity?: number;
+    unit?: string;
+    hindiName?: string;
+  }) {
+    const rows = await this.db.insert(shopItems).values(input).returning();
+    return rows[0]!;
+  }
+
+  async listShopItems(shopId: string) {
+    return this.db.select().from(shopItems).where(eq(shopItems.shopId, shopId));
+  }
+
+  async getShopItem(id: string) {
+    const rows = await this.db.select().from(shopItems).where(eq(shopItems.id, id)).limit(1);
+    return rows[0] ?? null;
+  }
+
+  async updateShopItem(
+    id: string,
+    patch: Partial<{
+      name: string;
+      emoji: string | null;
+      sellCents: number;
+      floorCents: number;
+      quantity: number | null;
+      unit: string | null;
+      hindiName: string | null;
+    }>,
+  ) {
+    const rows = await this.db
+      .update(shopItems)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(shopItems.id, id))
+      .returning();
+    return rows[0] ?? null;
+  }
+
+  async deleteShopItem(id: string): Promise<boolean> {
+    const rows = await this.db
+      .delete(shopItems)
+      .where(eq(shopItems.id, id))
+      .returning({ id: shopItems.id });
+    return rows.length > 0;
   }
 
   /* -------------------------------- sweeper -------------------------------- */

@@ -66,7 +66,7 @@ export default function LedgerAsk() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Ask your ledger…"
+          placeholder="Try: below, top sellers, total…"
           className={inputCls}
         />
         <button type="submit" className={button('primary')}>

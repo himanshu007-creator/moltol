@@ -17,6 +17,8 @@ export interface SimpleProduct {
   image?: string;
   /** model/catalogue key the product was recognised as */
   vegKey?: string;
+  /** the backend `shop_items` row this product is synced to, once it exists. */
+  backendItemId?: string;
 }
 
 export type SimplePersona = 'charmer' | 'stoic' | 'storyteller';
@@ -87,6 +89,8 @@ interface SimpleStore {
   /** create (or update) a single listing — the shared product-creation path */
   addProduct: (product: SimpleProduct) => void;
   setPrice: (id: ItemId, sellCents: number, floorCents: number) => void;
+  /** Records the backend `shop_items` id a locally-added product was synced to. */
+  setBackendId: (id: ItemId, backendItemId: string) => void;
   setPersona: (persona: SimplePersona) => void;
   finishOnboarding: () => void;
   /** Seed a ready-to-use demo stall, once (guarded by `onboarded`). Local, no-backend testing. */
@@ -131,6 +135,10 @@ export const useSimple = create<SimpleStore>()(
       setPrice: (id, sellCents, floorCents) =>
         set({
           products: get().products.map((p) => (p.id === id ? { ...p, sellCents, floorCents } : p)),
+        }),
+      setBackendId: (id, backendItemId) =>
+        set({
+          products: get().products.map((p) => (p.id === id ? { ...p, backendItemId } : p)),
         }),
       setPersona: (persona) => set({ persona }),
       finishOnboarding: () => set({ onboarded: true }),

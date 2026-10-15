@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { navigate } from 'astro:transitions/client';
 import { useVenue, splitNearby } from '@/stores/venue';
 import { useLiveShops } from '@/stores/inventory';
 import { useYou, distancesFrom, ENTER_RADIUS_M } from '@/stores/you';
 import { haversineM, BAZAAR_CENTER, type GeoPoint } from '@/lib/mock/discovery';
+import { useI18n } from '@/stores/prefs';
 import LeafletMap from '@/components/discovery/LeafletMap';
 
 /** GPS waits this long for a first fix, then falls back to "off". */
@@ -19,6 +21,7 @@ const GPS_TOO_FAR_M = 1500;
  * helper to teleport next to the real shops and try the proximity flow.
  */
 export default function ShopDiscovery() {
+  const { t } = useI18n();
   const stalls = useVenue((s) => s.stalls);
   const shops = useLiveShops();
   const point = useYou((s) => s.point);
@@ -31,6 +34,7 @@ export default function ShopDiscovery() {
   // "Not now" silences the prompt until the buyer has moved at least 50 m from where they dismissed it
   const [dismissedAt, setDismissedAt] = useState<GeoPoint | null>(null);
   const [picking, setPicking] = useState(false);
+  const [satellite, setSatellite] = useState(false);
   const quiet = dismissedAt !== null && haversineM(point, dismissedAt) < 50;
 
   // live GPS when the browser allows it; a timeout ends "locating" either way
@@ -80,14 +84,14 @@ export default function ShopDiscovery() {
 
   const statusLine =
     source === 'gps'
-      ? '📍 Live GPS · exact distance'
+      ? t('discovery.status.gps')
       : source === 'placed'
-        ? '📍 Placed near a shop (demo)'
+        ? t('discovery.status.placed')
         : gps === 'locating'
-          ? 'Finding you…'
+          ? t('discovery.status.locating')
           : gps === 'far'
-            ? "You're far from the demo bazaar — GPS shows your real distance."
-            : 'GPS is off.';
+            ? t('discovery.status.far')
+            : t('discovery.status.off');
 
   const enterShop = (id: string) => {
     setPicking(false);
@@ -102,15 +106,23 @@ export default function ShopDiscovery() {
           <span className="pill">source: {source}</span>
         </div>
 
-        <LeafletMap point={point} pins={pins} />
+        <LeafletMap point={point} pins={pins} satellite={satellite} />
 
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={placeNearShop} className="btn btn-quiet !min-h-11 !px-4 !text-sm">
-            📍 Place me near a shop
+          <button type="button" onClick={placeNearShop} className="btn btn-quiet !min-h-11 !px-4 !text-sm transition active:scale-95">
+            {t('discovery.placeMe')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSatellite((v) => !v)}
+            aria-pressed={satellite}
+            className="btn btn-quiet !min-h-11 !px-4 !text-sm transition active:scale-95"
+          >
+            {satellite ? t('discovery.street') : t('discovery.satellite')}
           </button>
           {(gps === 'denied' || gps === 'far') && (
-            <button type="button" onClick={() => setWatchKey((k) => k + 1)} className="btn btn-quiet !min-h-11 !px-4 !text-sm">
-              📍 Try GPS again
+            <button type="button" onClick={() => setWatchKey((k) => k + 1)} className="btn btn-quiet !min-h-11 !px-4 !text-sm transition active:scale-95">
+              {t('discovery.tryGps')}
             </button>
           )}
         </div>
@@ -118,7 +130,7 @@ export default function ShopDiscovery() {
 
       <div className="grid gap-4">
         {sorted.length === 0 ? (
-          <p className="surface p-6 text-center text-ink-muted">🛌 No stalls are open right now. Check back soon.</p>
+          <p className="surface p-6 text-center text-ink-muted">{t('discovery.noneOpen')}</p>
         ) : (
           <ul className="grid gap-3" data-testid="open-stalls">
             {sorted.map((s) => (
@@ -131,7 +143,7 @@ export default function ShopDiscovery() {
                       {Math.round(dists[s.id] ?? 0)} m · {s.persona}
                     </span>
                   </span>
-                  <span className="pill pill-teal">Open</span>
+                  <span className="pill pill-teal">{t('discovery.open')}</span>
                   <span className="text-chili" aria-hidden="true">→</span>
                 </a>
               </li>
@@ -141,7 +153,7 @@ export default function ShopDiscovery() {
 
         {closed.length > 0 && (
           <section aria-labelledby="closed-heading" className="grid gap-3">
-            <h2 id="closed-heading" className="t-label">Closed now</h2>
+            <h2 id="closed-heading" className="t-label">{t('discovery.closedNow')}</h2>
             <ul className="grid gap-3" data-testid="closed-stalls">
               {closed.map((s) => (
                 <li key={s.id}>
@@ -151,7 +163,7 @@ export default function ShopDiscovery() {
                       <span className="t-h2 block !text-[1.15rem]">{s.name.en}</span>
                       <span className="block text-sm text-ink-muted">{s.persona}</span>
                     </span>
-                    <span className="pill pill-chili">Closed</span>
+                    <span className="pill pill-chili">{t('discovery.closed')}</span>
                   </a>
                 </li>
               ))}
@@ -160,33 +172,44 @@ export default function ShopDiscovery() {
         )}
       </div>
 
-      {nearbyList.length === 1 && (
-        <ProximityPrompt
-          name={nearbyList[0].name.en}
-          emoji={nearbyList[0].emoji}
-          meters={dists[nearbyList[0].id] ?? 0}
-          onEnter={() => enterShop(nearbyList[0].id)}
-          onLater={() => setDismissedAt(point)}
-        />
-      )}
+      <AnimatePresence>
+        {nearbyList.length === 1 && (
+          <ProximityPrompt
+            key="prox-single"
+            name={nearbyList[0].name.en}
+            emoji={nearbyList[0].emoji}
+            meters={dists[nearbyList[0].id] ?? 0}
+            onEnter={() => enterShop(nearbyList[0].id)}
+            onLater={() => setDismissedAt(point)}
+          />
+        )}
 
-      {nearbyList.length > 1 && !picking && (
-        <ProximityPrompt
-          name={`${nearbyList.length} shops`}
-          emoji="🧭"
-          meters={dists[nearbyList[0].id] ?? 0}
-          multi
-          onEnter={() => setPicking(true)}
-          onLater={() => setDismissedAt(point)}
-        />
-      )}
+        {nearbyList.length > 1 && !picking && (
+          <ProximityPrompt
+            key="prox-multi"
+            name={`${nearbyList.length} ${t('discovery.prox.shops')}`}
+            emoji="🧭"
+            meters={dists[nearbyList[0].id] ?? 0}
+            multi
+            onEnter={() => setPicking(true)}
+            onLater={() => setDismissedAt(point)}
+          />
+        )}
 
-      {nearbyList.length > 1 && picking && (
-        <ShopPicker shops={nearbyList} dists={dists} onPick={enterShop} onClose={() => setPicking(false)} />
-      )}
+        {nearbyList.length > 1 && picking && (
+          <ShopPicker key="picker" shops={nearbyList} dists={dists} onPick={enterShop} onClose={() => setPicking(false)} />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
+
+const promptMotion = {
+  initial: { opacity: 0, y: 24, scale: 0.97 },
+  animate: { opacity: 1, y: 0, scale: 1 },
+  exit: { opacity: 0, y: 16, scale: 0.97 },
+  transition: { type: 'spring' as const, stiffness: 320, damping: 26 },
+};
 
 /** Shown when the buyer is inside a stall's radius. Says where they are and offers to enter. */
 export function ProximityPrompt({
@@ -204,27 +227,37 @@ export function ProximityPrompt({
   onLater: () => void;
   multi?: boolean;
 }) {
+  const { t } = useI18n();
   return (
-    <div
+    <motion.div
+      {...promptMotion}
       role="alertdialog"
       aria-labelledby="prox-title"
       aria-describedby="prox-body"
       className="surface-solid fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+5rem)] z-50 mx-auto grid max-w-md gap-3 p-4 sm:bottom-24"
     >
       <div className="flex items-center gap-3">
-        <span className="text-3xl" aria-hidden="true">{emoji}</span>
+        <motion.span
+          className="text-3xl"
+          aria-hidden="true"
+          initial={{ scale: 0.6, rotate: -10 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 14, delay: 0.08 }}
+        >
+          {emoji}
+        </motion.span>
         <div className="min-w-0">
-          <p id="prox-title" className="text-lg font-bold text-ink">{multi ? `You're near ${name}` : `You're at ${name}`}</p>
+          <p id="prox-title" className="text-lg font-bold text-ink">{multi ? t('discovery.prox.near') : t('discovery.prox.at')} {name}</p>
           <p id="prox-body" className="text-sm text-ink-muted">
-            {multi ? 'Pick which one you want to visit.' : `${Math.round(meters)} m away. Enter the stall to see prices and haggle.`}
+            {multi ? t('discovery.prox.chooseHint') : `${Math.round(meters)} ${t('discovery.prox.enterHint')}`}
           </p>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <button type="button" onClick={onLater} className="btn btn-quiet">Not now</button>
-        <button type="button" onClick={onEnter} className="btn btn-primary">{multi ? 'Choose a shop' : 'Enter stall'}</button>
+        <button type="button" onClick={onLater} className="btn btn-quiet">{t('discovery.prox.notNow')}</button>
+        <button type="button" onClick={onEnter} className="btn btn-primary">{multi ? t('discovery.prox.choose') : t('discovery.prox.enter')}</button>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -240,33 +273,38 @@ function ShopPicker({
   onPick: (id: string) => void;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   return (
-    <div
+    <motion.div
+      {...promptMotion}
       role="alertdialog"
       aria-labelledby="pick-title"
       className="surface-solid fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+5rem)] z-50 mx-auto grid max-w-md gap-3 p-4 sm:bottom-24"
     >
       <div className="flex items-center justify-between">
-        <p id="pick-title" className="text-lg font-bold text-ink">Which shop?</p>
-        <button type="button" onClick={onClose} className="btn btn-link !min-h-9 !px-2 !text-sm">Not now</button>
+        <p id="pick-title" className="text-lg font-bold text-ink">{t('discovery.picker.title')}</p>
+        <button type="button" onClick={onClose} className="btn btn-link !min-h-9 !px-2 !text-sm">{t('discovery.prox.notNow')}</button>
       </div>
       <div className="grid gap-2">
-        {shops.map((s) => (
-          <button
+        {shops.map((s, i) => (
+          <motion.button
             key={s.id}
             type="button"
             onClick={() => onPick(s.id)}
+            initial={{ opacity: 0, x: -8 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: i * 0.05 }}
             className="surface flex min-h-16 items-center gap-3 p-3 text-left transition active:scale-[0.99]"
           >
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-paper-3 text-2xl" aria-hidden="true">{s.emoji}</span>
             <span className="min-w-0 flex-1">
               <span className="block truncate font-semibold text-ink">{s.name.en}</span>
-              <span className="block text-xs text-ink-muted">{Math.round(dists[s.id] ?? 0)} m away</span>
+              <span className="block text-xs text-ink-muted">{Math.round(dists[s.id] ?? 0)} {t('discovery.meterAway')}</span>
             </span>
             <span className="text-chili" aria-hidden="true">→</span>
-          </button>
+          </motion.button>
         ))}
       </div>
-    </div>
+    </motion.div>
   );
 }

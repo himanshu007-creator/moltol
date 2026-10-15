@@ -105,11 +105,53 @@ const {
     </main>
     {chrome && footer && <Footer />}
 
+    {/* page-to-page splash: the scale tips, a bazaar line plays, gone before you notice the wait */}
+    <div id="nav-splash" aria-hidden="true" class="nav-splash">
+      <div class="nav-splash-card">
+        <img src="/icon.svg" alt="" width="56" height="56" class="nav-splash-scale" />
+        <p id="nav-splash-line" class="nav-splash-line"></p>
+      </div>
+    </div>
+
     <script>
       import { usePrefs } from '@/stores/prefs';
       const sync = () => usePrefs.getState().sync();
       sync();
       document.addEventListener('astro:page-load', sync);
+    </script>
+
+    <script>
+      const LINES = [
+        'Weighing today’s prices…',
+        'Agents are haggling…',
+        'Finding the fair price…',
+        'Sealing the limits…',
+        'Walking to the next stall…',
+      ];
+      const MIN_VISIBLE_MS = 420;
+      const el = document.getElementById('nav-splash');
+      const lineEl = document.getElementById('nav-splash-line');
+      let shownAt = 0;
+      let hideTimer: ReturnType<typeof setTimeout> | null = null;
+
+      function show() {
+        if (!el || !lineEl) return;
+        if (hideTimer) clearTimeout(hideTimer);
+        lineEl.textContent = LINES[Math.floor(Math.random() * LINES.length)] ?? '';
+        shownAt = performance.now();
+        el.classList.add('is-visible');
+      }
+      function hide() {
+        if (!el) return;
+        const elapsed = performance.now() - shownAt;
+        const wait = Math.max(0, MIN_VISIBLE_MS - elapsed);
+        hideTimer = setTimeout(() => el.classList.remove('is-visible'), wait);
+      }
+
+      document.addEventListener('astro:before-preparation', show);
+      document.addEventListener('astro:after-swap', hide);
+      // safety net: never leave the splash stuck up if a transition errors out
+      document.addEventListener('astro:page-load', hide);
     </script>
   </body>
 </html>
