@@ -1,23 +1,40 @@
 ---
 import Base from '../layouts/Base.astro';
 import AuthForm from '../components/buyer/AuthForm';
+
+// `role` only ever comes from the real visitor's URL, which a static build can't see —
+// the generic copy below is the server-rendered fallback; the inline script swaps it
+// client-side from `location.search`, same as AuthForm.tsx already does for the role step.
 ---
 
 <Base shell={false} title="Create account · MolTol">
-  <section class="mx-auto grid min-h-[calc(100dvh-4rem)] max-w-6xl items-center gap-10 px-5 pb-28 pt-8 sm:px-8 lg:grid-cols-2 lg:pb-16">
-    <div class="surface-solid rise hidden min-h-[30rem] flex-col justify-between p-10 lg:flex">
-      <div class="grid gap-4">
-        <h1 class="t-display !text-ink">One account, two roles.</h1>
-        <p class="max-w-md text-lg text-ink-muted">Buy from the bazaar in the morning, run your own stall in the evening. Switch from the menu, no reload.</p>
+  <section class="relative mx-auto grid min-h-[calc(100dvh-4rem)] max-w-6xl items-center gap-10 px-5 pb-28 pt-8 sm:px-8 lg:grid-cols-2 lg:pb-16">
+    <div class="glow-stage rise relative hidden min-h-[30rem] flex-col justify-between overflow-hidden rounded-3xl p-10 lg:flex">
+      <div class="glow-dust" />
+      <div class="relative grid gap-4">
+        <h1 class="t-display" data-i18n="auth.signup.generic.title" data-role-title style="color: var(--glow-ink)">One account, two roles.</h1>
+        <p class="max-w-md text-lg" data-i18n="auth.signup.generic.lede" data-role-lede style="color: var(--glow-ink-muted)">Buy from the bazaar in the morning, run your own stall in the evening. Switch from the menu, no reload.</p>
       </div>
-      <p class="text-sm text-ink-faint">Sandbox money only. Hackathon build.</p>
+      <p class="relative text-sm" data-i18n="auth.sandboxNote" style="color: var(--glow-ink-faint)">Sandbox money only. Hackathon build.</p>
     </div>
     <div class="mx-auto grid w-full max-w-sm gap-6">
       <div class="rise lg:hidden">
-        <h1 class="t-h1 mt-1">One account, two roles</h1>
-        <p class="t-lede mt-1">Buy from the bazaar, or run your own stall. Switch anytime.</p>
+        <h1 class="t-h1 mt-1" data-i18n="auth.signup.generic.title" data-role-title>One account, two roles.</h1>
+        <p class="t-lede mt-1" data-i18n="auth.signup.generic.lede" data-role-lede>Buy from the bazaar in the morning, run your own stall in the evening. Switch from the menu, no reload.</p>
       </div>
       <AuthForm client:load mode="signup" />
     </div>
   </section>
+
+  <script>
+    import { applyI18n } from '@/lib/i18n';
+    import { usePrefs } from '@/stores/prefs';
+
+    const role = new URLSearchParams(location.search).get('role');
+    if (role === 'buyer' || role === 'seller') {
+      document.querySelectorAll<HTMLElement>('[data-role-title]').forEach((el) => (el.dataset.i18n = `auth.signup.${role}.title`));
+      document.querySelectorAll<HTMLElement>('[data-role-lede]').forEach((el) => (el.dataset.i18n = `auth.signup.${role}.lede`));
+      applyI18n(document, usePrefs.getState().locale);
+    }
+  </script>
 </Base>

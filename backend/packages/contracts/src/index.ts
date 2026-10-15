@@ -4,3 +4,6 @@ export * from "./turns";
 export * from "./negotiation";
 export * from "./events";
 export * from "./problem";
+export * from "./email";
+export * from "./auth";
+export * from "./vendor";

@@ -12,6 +12,8 @@ import type { Container } from "./container";
 import type { NegotiationRunner } from "@moltol/engine";
 import { revealProof } from "./proof";
 import { verifyWebhookSignature } from "@moltol/paypal";
+import { registerAuthRoutes } from "./auth-routes";
+import { registerShopRoutes } from "./shop-routes";
 
 export interface RouteDeps {
   container: Container;
@@ -37,6 +39,11 @@ export async function registerRoutes(app: FastifyInstance, deps: RouteDeps): Pro
     await store.appendEvent(event);
     await publish(redis, event);
   };
+
+  /* ----------------------------- auth / vendor ----------------------------- */
+
+  await registerAuthRoutes(app, container);
+  await registerShopRoutes(app, container);
 
   /* --------------------------------- health -------------------------------- */
 

@@ -4,12 +4,18 @@ interface Props {
   title: string;
   lede?: string;
   class?: string;
+  /** Optional copy keys (src/lib/copy/{en,hi}.ts) — when given, the client-side
+   *  language switch re-translates this heading via data-i18n, same as the
+   *  landing page. English text above is still the first-paint fallback. */
+  eyebrowKey?: string;
+  titleKey?: string;
+  ledeKey?: string;
 }
-const { eyebrow, title, lede, class: cls = '' } = Astro.props;
+const { eyebrow, title, lede, class: cls = '', eyebrowKey, titleKey, ledeKey } = Astro.props;
 ---
 
 <header class:list={['rise grid gap-2', cls]}>
-  {eyebrow && <p class="t-label">{eyebrow}</p>}
-  <h1 class="t-h1">{title}</h1>
-  {lede && <p class="t-lede">{lede}</p>}
+  {eyebrow && <p class="t-label" data-i18n={eyebrowKey}>{eyebrow}</p>}
+  <h1 class="t-h1" data-i18n={titleKey}>{title}</h1>
+  {lede && <p class="t-lede" data-i18n={ledeKey}>{lede}</p>}
 </header>

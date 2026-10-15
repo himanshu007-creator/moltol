@@ -17,17 +17,17 @@ test.describe('buyer discovery', () => {
     const rows = page.getByTestId('open-stalls').getByRole('link');
     await expect(rows.first()).toContainText('Demo ki Dukaan');
     await expect(rows).toHaveCount(6);
-    await expect(rows.filter({ hasText: 'Barry sabziwala' })).toHaveCount(1);
-    await expect(rows.filter({ hasText: 'Magan fruitwala' })).toHaveCount(1);
+    await expect(rows.filter({ hasText: 'Barry vegetable shop' })).toHaveCount(1);
+    await expect(rows.filter({ hasText: 'Cherry fruit shop' })).toHaveCount(1);
     await expect(page.getByText('source: gps')).toBeVisible();
   });
 
-  test('falls back to walking when GPS is denied, and offers a retry', async ({ page }) => {
+  test('falls back to the bazaar centre when GPS is denied, and offers a retry', async ({ page }) => {
     await page.goto('/app/buy');
 
-    await expect(page.getByText('source: walk')).toBeVisible();
+    await expect(page.getByText('source: default')).toBeVisible();
     await expect(page.getByRole('button', { name: /Try GPS again/ })).toBeVisible();
-    // walking distances: the demo's own stall is closest at 60 m
+    // default-position distances: the demo's own stall is closest at 60 m
     await expect(page.getByTestId('open-stalls').getByRole('link').first()).toContainText('Demo ki Dukaan');
     await expect(page.getByTestId('open-stalls')).toContainText('Ramesh ka thela');
   });
@@ -79,24 +79,26 @@ test.describe('stall status sync', () => {
     await expect(page.getByRole('switch', { name: /Your stall is closed/ })).toBeVisible();
   });
 });
-test.describe('walk up and enter', () => {
-  test('walking to a stall moves the dot and prompts to enter it', async ({ page }) => {
+test.describe('place near a shop', () => {
+  test('placing near a shop offers a picker, and entering one navigates to its stall', async ({ page }) => {
     await seed(page, 'buyer');
     await page.goto('/app/buy');
 
-    // Ramesh's thela is ~70 m from the start, so the walk takes a few seconds
-    await page.getByRole('button', { name: /Walk to Ramesh ka thela/ }).click();
+    // Barry, Cherry and the demo stall are all within range of the "placed" point
+    await page.getByRole('button', { name: /Place me near a shop/ }).click();
     const prompt = page.getByRole('alertdialog');
-    await expect(prompt).toContainText("You're at Ramesh ka thela", { timeout: 45_000 });
-    await page.getByRole('button', { name: 'Enter stall' }).click();
-    await expect(page).toHaveURL(/\/app\/stall\?id=thela-01/);
+    await expect(prompt).toContainText("You're near", { timeout: 10_000 });
+    await page.getByRole('button', { name: 'Choose a shop' }).click();
+    await expect(page.getByRole('alertdialog').getByText('Barry vegetable shop')).toBeVisible();
+    await page.getByRole('alertdialog').getByText('Barry vegetable shop').click();
+    await expect(page).toHaveURL(/\/app\/stall\?id=barry-01/);
   });
 
-  test('"Not now" hides the prompt for that stall', async ({ page }) => {
+  test('"Not now" hides the prompt', async ({ page }) => {
     await seed(page, 'buyer');
     await page.goto('/app/buy');
-    await page.getByRole('button', { name: /Walk to Demo ki Dukaan/ }).click();
-    await expect(page.getByRole('alertdialog')).toBeVisible({ timeout: 20_000 });
+    await page.getByRole('button', { name: /Place me near a shop/ }).click();
+    await expect(page.getByRole('alertdialog')).toBeVisible({ timeout: 10_000 });
     await page.getByRole('button', { name: 'Not now' }).click();
     await expect(page.getByRole('alertdialog')).toHaveCount(0);
   });

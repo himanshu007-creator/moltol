@@ -46,11 +46,12 @@ export default function SimpleSettings() {
               type="button"
               role="switch"
               aria-checked={r.active}
+              aria-label={r.label}
               onClick={() => (r.active ? r.off() : r.on())}
-              className={`relative h-9 w-16 rounded-full transition ${r.active ? 'bg-marigold' : 'bg-paper-3'}`}
+              className={`relative flex h-11 w-16 items-center rounded-full transition ${r.active ? 'bg-marigold' : 'bg-paper-3'}`}
             >
               <span
-                className={`absolute top-1 h-7 w-7 rounded-full bg-paper shadow transition-all ${r.active ? 'left-8' : 'left-1'}`}
+                className={`absolute top-1/2 h-7 w-7 -translate-y-1/2 rounded-full bg-paper shadow transition-all ${r.active ? 'left-8' : 'left-1'}`}
               />
             </button>
           </div>

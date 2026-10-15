@@ -2,9 +2,45 @@ import { test, expect } from './fixtures';
 import AxeBuilder from '@axe-core/playwright';
 import { seed } from './helpers';
 
-const PAGES = ['/', '/login', '/app/buy', '/app/seller/inventory', '/app/seller/ledger', '/app/insights', '/app/cart'] as const;
+const PAGES = [
+  '/',
+  '/login',
+  '/signup',
+  '/app/buy',
+  '/app/stall',
+  '/app/checkout',
+  '/app/receipt',
+  '/app/orders',
+  '/app/seller/inventory',
+  '/app/seller/ledger',
+  '/app/seller/shop',
+  '/app/insights',
+  '/app/cart',
+  '/app/seller/simple/setup',
+  '/app/seller/simple',
+  '/app/seller/simple/price',
+  '/app/seller/simple/deals',
+  '/app/seller/simple/earnings',
+  '/app/seller/simple/settings',
+] as const;
 // pages that need a logged-in session
-const NEEDS_SESSION = new Set(['/app/seller/inventory', '/app/seller/ledger', '/app/insights', '/app/cart']);
+const NEEDS_SESSION = new Set([
+  '/app/stall',
+  '/app/checkout',
+  '/app/receipt',
+  '/app/orders',
+  '/app/seller/inventory',
+  '/app/seller/ledger',
+  '/app/seller/shop',
+  '/app/insights',
+  '/app/cart',
+  '/app/seller/simple/setup',
+  '/app/seller/simple',
+  '/app/seller/simple/price',
+  '/app/seller/simple/deals',
+  '/app/seller/simple/earnings',
+  '/app/seller/simple/settings',
+]);
 
 for (const path of PAGES) {
   test(`a11y: no critical/serious violations on ${path}`, async ({ page }) => {

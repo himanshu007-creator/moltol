@@ -149,7 +149,7 @@ export default function Shell() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.98 }}
             transition={{ duration: 0.16 }}
-            className="surface absolute right-0 top-full z-50 mt-2 w-72 p-2 text-left shadow-xl"
+            className="surface absolute right-0 top-full z-50 mt-2 w-72 p-3 text-left shadow-xl"
           >
             <p className="truncate px-3 pb-1 pt-2 text-base font-semibold text-ink">{name}</p>
             <p className="px-3 pb-2 text-sm text-ink-muted">{activeRole === 'buyer' ? t('menu.signedBuyer') : t('menu.signedSeller')}</p>

@@ -76,7 +76,7 @@ export default function Orders() {
                 <p className="text-sm text-ink">
                   <b className="font-semibold">Ready to collect.</b> Show <span className="t-num font-semibold">{o.id}</span> at the stall.
                 </p>
-                <a href="/app/receipt" className="btn btn-teal !min-h-10 !text-sm">Show receipt</a>
+                <a href={`/app/receipt?order=${o.id}`} className="btn btn-teal !min-h-10 !text-sm">Show receipt</a>
               </div>
             )}
           </li>

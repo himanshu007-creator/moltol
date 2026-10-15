@@ -1,25 +1,43 @@
+import { useRef } from 'react';
 import { useSimple } from '@/stores/simple';
+import { useSession } from '@/stores/session';
 import { s, nativeRupaye, itemName, SIMPLE_ITEMS } from '@/lib/simple/strings';
 import { speakRupaye } from '@/lib/voice';
+import { updateShopItem } from '@/lib/backend';
+
+const SYNC_DEBOUNCE_MS = 600;
 
 export default function SimplePrice() {
   const { products, setPrice, language, mute } = useSimple();
+  const token = useSession((x) => x.token);
   const dict = s(language);
   const items = products.map((p) => ({
     ...p,
     def: SIMPLE_ITEMS.find((i) => i.id === p.id) ?? SIMPLE_ITEMS[0]!,
   }));
 
+  // A range slider fires on every pixel of drag — sync to the backend only
+  // once the user pauses, not on every tick, one timer per item.
+  const syncTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const scheduleSync = (backendItemId: string, sellCents: number, floorCents: number) => {
+    clearTimeout(syncTimers.current[backendItemId]);
+    syncTimers.current[backendItemId] = setTimeout(() => {
+      void updateShopItem(token!, backendItemId, { sellCents, floorCents }).catch(() => {});
+    }, SYNC_DEBOUNCE_MS);
+  };
+
   const set = (id: typeof products[number]['id'], sellCents: number, floorCents: number) => {
     setPrice(id, sellCents, floorCents);
     speakRupaye(sellCents, language, { mute });
+    const backendItemId = products.find((p) => p.id === id)?.backendItemId;
+    if (token && backendItemId) scheduleSync(backendItemId, sellCents, floorCents);
   };
 
   return (
     <div className="mx-auto w-full max-w-md px-4 pb-32 pt-6">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold text-ink">{dict.u.homeToday}</h1>
-        <a href="/app/seller/simple/scan" className="shrink-0 rounded-full bg-marigold px-4 py-2 text-sm font-semibold text-[#23180a]">
+        <a href="/app/seller/simple/scan" className="flex min-h-11 shrink-0 items-center rounded-full bg-marigold px-4 text-sm font-semibold text-[#23180a]">
           📷 {dict.u.scanTitle}
         </a>
       </div>
