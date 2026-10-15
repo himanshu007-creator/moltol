@@ -15,7 +15,7 @@ export interface MarketConfig {
 /** Build the market provider used by the engine: Channel3 when configured, else seed. */
 export function createMarketProvider(config: MarketConfig = {}): MarketProvider {
   return {
-    async getComps(query: string, currency: string): Promise<MarketRange> {
+    async getComps(query, currency, hint): Promise<MarketRange> {
       if (config.channel3ApiKey) {
         const live = await channel3Comps({
           query,
@@ -26,7 +26,7 @@ export function createMarketProvider(config: MarketConfig = {}): MarketProvider 
         });
         if (live) return live;
       }
-      return seededComps(query, currency);
+      return seededComps(query, currency, hint?.referenceCents);
     },
   };
 }

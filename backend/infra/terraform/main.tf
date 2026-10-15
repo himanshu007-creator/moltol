@@ -26,6 +26,13 @@ resource "random_password" "postgres" {
   special = false
 }
 
+# Session-signing key. Generated once and kept in state, so tokens survive
+# redeploys; the API refuses to start in production without one.
+resource "random_password" "jwt" {
+  length  = 64
+  special = false
+}
+
 # Register the local public key as an EC2 key pair so the instance trusts it.
 resource "aws_key_pair" "deployer" {
   key_name   = "${var.instance_name}-deployer"

@@ -31,7 +31,8 @@ export type NegotiationState = z.infer<typeof NegotiationStateSchema>;
  */
 export const STATE_TRANSITIONS: Record<NegotiationState, readonly NegotiationState[]> = {
   init: ["committed", "failed"],
-  committed: ["negotiating", "no_deal", "failed"],
+  // committed -> agreed: a buyer who takes over before the first turn may accept the sticker price.
+  committed: ["negotiating", "agreed", "no_deal", "failed"],
   negotiating: ["agreed", "no_deal", "failed"],
   agreed: ["payment_pending", "no_deal", "failed"],
   payment_pending: ["paid", "failed"],
@@ -73,6 +74,18 @@ export const NegotiationSchema = z.object({
   paypalCaptureId: z.string().nullable(),
   market: MarketRangeSchema.nullable(),
   turns: z.array(TurnSchema),
+  /* Set only when this negotiation is one line of a basket (null otherwise). */
+  basketId: z.string().uuid().nullable(),
+  lineIndex: z.number().int().nonnegative().nullable(),
+  shopItemId: z.string().uuid().nullable(),
+  itemEmoji: z.string().nullable(),
+  itemUnit: z.string().nullable(),
+  qty: z.number().positive().nullable(),
+  /** The shop's public opening price. Its floor is sealed and never on the wire. */
+  openCents: z.number().int().positive().nullable(),
+  shopPersona: PersonaSchema.nullable(),
+  /** True once a human has taken over the buyer side. */
+  controlled: z.boolean(),
   createdAt: z.string(),
 });
 export type Negotiation = z.infer<typeof NegotiationSchema>;
@@ -92,6 +105,19 @@ export const CheckoutResultSchema = z.object({
 });
 export type CheckoutResult = z.infer<typeof CheckoutResultSchema>;
 
+/**
+ * Both sealed limits and their salts, published only after settlement so anyone
+ * can recompute `commit()` (see @moltol/policy `commitmentPayload`) and check it
+ * against the commitments sent in `limits.sealed` before the first turn.
+ */
+export const RevealSchema = z.object({
+  buyerLimitCents: z.number().int().nonnegative(),
+  buyerSalt: z.string(),
+  shopFloorCents: z.number().int().nonnegative(),
+  shopSalt: z.string(),
+});
+export type Reveal = z.infer<typeof RevealSchema>;
+
 export const ProofResultSchema = z.object({
   negotiationId: z.string().uuid(),
   verified: z.boolean(),
@@ -99,9 +125,11 @@ export const ProofResultSchema = z.object({
   buyerSavedCents: z.number().int(),
   shopGainedCents: z.number().int(),
   priceCents: z.number().int().nonnegative(),
+  currency: CurrencySchema,
   buyerCommit: z.string(),
   shopCommit: z.string(),
   reasons: z.array(z.string()),
+  reveal: RevealSchema,
 });
 export type ProofResult = z.infer<typeof ProofResultSchema>;
 

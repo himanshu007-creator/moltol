@@ -32,3 +32,8 @@ enable_https = true
 # llm_model            = ""
 # channel3_api_key     = ""
 # seal_key             = ""  # openssl rand -hex 32
+
+# ---- OTP email (optional; without it codes only appear in the API logs) -------
+# smtp_user     = ""
+# smtp_password = ""
+# email_from    = "MolTol <your-verified-sender@example.com>"
