@@ -198,6 +198,12 @@ describe("anchors and fairness", () => {
   it("never opens above the mandate", () => {
     expect(openingAnchor({ p25Cents: 9000, maxTotalCents: 4000 })).toBeLessThanOrEqual(4000);
   });
+  it("anchors on the market, not on how big the mandate is", () => {
+    const modest = openingAnchor({ p25Cents: 3000, maxTotalCents: 4000 });
+    const generous = openingAnchor({ p25Cents: 3000, maxTotalCents: 1_000_000 });
+    expect(generous).toBe(modest);
+    expect(generous).toBeLessThan(3000);
+  });
   it("scores an even split at 100", () => {
     expect(fairnessScore(3500, 3000, 4000)).toBe(100);
     expect(fairnessScore(3000, 3000, 4000)).toBe(0);

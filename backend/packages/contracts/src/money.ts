@@ -23,3 +23,17 @@ export function formatMoney(money: Money): string {
   const symbol = money.currency === "USD" ? "$" : "";
   return `${symbol}${value} ${money.currency === "USD" ? "" : money.currency}`.trim();
 }
+
+/**
+ * Short price for negotiation wording: "$35.00", "₹35" / "₹35.50", "35.00 EUR".
+ * Display only — never parse it back into money.
+ */
+export function formatCents(cents: number, currency: string): string {
+  const code = currency.toUpperCase();
+  if (code === "INR") {
+    const rupees = cents / 100;
+    return `₹${Number.isInteger(rupees) ? rupees : rupees.toFixed(2)}`;
+  }
+  const value = (cents / 100).toFixed(2);
+  return code === "USD" ? `$${value}` : `${value} ${code}`;
+}

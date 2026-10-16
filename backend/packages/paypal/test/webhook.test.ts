@@ -75,21 +75,75 @@ describe("verifyWebhookSignature", () => {
     "paypal-auth-algo": "SHA256withRSA",
   };
 
-  it("accepts the sandbox simulator sentinel and rejects it in live", async () => {
+  // Stands in for PayPal's signing key; the "cert" resolves to its public half.
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const resolveKey = async () => publicKey;
+
+  function signed(rawBody: string, webhookId: string) {
+    const message = buildSignedMessage({
+      transmissionId: baseHeaders["paypal-transmission-id"],
+      timestamp: baseHeaders["paypal-transmission-time"],
+      webhookId,
+      crc: computeCrc32(rawBody),
+    });
+    return {
+      ...baseHeaders,
+      "paypal-transmission-sig": sign("sha256", Buffer.from(message), privateKey).toString(
+        "base64",
+      ),
+    };
+  }
+
+  const body = '{"id":"WH-1","event_type":"PAYMENT.CAPTURE.COMPLETED"}';
+
+  it("verifies a genuinely signed event", async () => {
     expect(
       await verifyWebhookSignature({
-        headers: baseHeaders,
-        rawBody: "{}",
-        webhookId: "WEBHOOK_ID",
-        env: "sandbox",
+        headers: signed(body, "REAL_ID"),
+        rawBody: body,
+        webhookId: "REAL_ID",
+        env: "live",
+        resolveKey,
       }),
     ).toBe(true);
+  });
+
+  it("rejects a tampered body or a different webhook id", async () => {
+    const headers = signed(body, "REAL_ID");
+    const base = { headers, webhookId: "REAL_ID", env: "sandbox" as const, resolveKey };
+    expect(await verifyWebhookSignature({ ...base, rawBody: `${body} ` })).toBe(false);
+    expect(await verifyWebhookSignature({ ...base, rawBody: body, webhookId: "OTHER" })).toBe(
+      false,
+    );
+  });
+
+  it("checks simulator events cryptographically too (sentinel id WEBHOOK_ID, sandbox only)", async () => {
+    const headers = signed(body, "WEBHOOK_ID");
+    const base = { headers, rawBody: body, webhookId: "WEBHOOK_ID", resolveKey };
+    expect(await verifyWebhookSignature({ ...base, env: "sandbox" })).toBe(true);
+    expect(await verifyWebhookSignature({ ...base, env: "live" })).toBe(false);
+  });
+
+  it("regression: a forged event with the simulator sentinel is rejected", async () => {
     expect(
       await verifyWebhookSignature({
-        headers: baseHeaders,
-        rawBody: "{}",
+        headers: baseHeaders, // junk signature
+        rawBody: body,
         webhookId: "WEBHOOK_ID",
-        env: "live",
+        env: "sandbox",
+        resolveKey,
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects when no webhook id is configured", async () => {
+    expect(
+      await verifyWebhookSignature({
+        headers: signed(body, ""),
+        rawBody: body,
+        webhookId: "",
+        env: "sandbox",
+        resolveKey,
       }),
     ).toBe(false);
   });

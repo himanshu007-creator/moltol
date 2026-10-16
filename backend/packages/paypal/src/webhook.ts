@@ -10,10 +10,16 @@ import { crc32 } from "node:zlib";
  *   public key from the PayPal certificate at `paypal-cert-url`
  *   (host MUST be *.paypal.com).
  *
- * Simulated webhooks from the dashboard cannot be verified via the postback
- * endpoint; they "self-verify" and are only trusted when the webhook id is the
- * literal sentinel `WEBHOOK_ID` and we are in sandbox.
+ * Webhook-simulator ("mock") events can't use the postback verify endpoint, but
+ * they ARE signed: PayPal documents that "for message signature verification
+ * purposes, the ID of mock webhooks is the string WEBHOOK_ID". So they go
+ * through the same RSA check with that literal id — never a free pass — and
+ * only in sandbox. An earlier version returned `true` for the sentinel without
+ * checking anything, which let anyone POST a fake PAYMENT.CAPTURE.COMPLETED.
  */
+
+/** The webhook id PayPal signs simulator events with. */
+export const SIMULATOR_WEBHOOK_ID = "WEBHOOK_ID";
 
 export interface WebhookHeaders {
   transmissionId: string;
@@ -82,48 +88,43 @@ export function verifyWithPublicKey(
 export interface VerifyOptions {
   headers: Record<string, string | string[] | undefined>;
   rawBody: string | Buffer;
+  /** The listener's webhook id, or SIMULATOR_WEBHOOK_ID for simulator events (sandbox only). */
   webhookId: string;
   env: "sandbox" | "live";
-  /** Injectable for tests; defaults to fetching and caching the PayPal cert. */
-  fetchCert?: (certUrl: string) => Promise<string>;
+  /** Injectable for tests; defaults to fetching (and caching) PayPal's cert and taking its key. */
+  resolveKey?: (certUrl: string) => Promise<KeyLike>;
 }
 
-const certCache = new Map<string, { pem: string; expiresAt: number }>();
+const certCache = new Map<string, { key: KeyLike; expiresAt: number }>();
 
-async function defaultFetchCert(certUrl: string): Promise<string> {
+async function defaultResolveKey(certUrl: string): Promise<KeyLike> {
   const cached = certCache.get(certUrl);
-  if (cached && cached.expiresAt > Date.now()) return cached.pem;
-  const res = await fetch(certUrl);
+  if (cached && cached.expiresAt > Date.now()) return cached.key;
+  // No redirects: an open redirect on a paypal.com host must not hand us someone else's cert.
+  const res = await fetch(certUrl, { redirect: "error" });
   if (!res.ok) throw new Error(`cert fetch failed: ${res.status}`);
-  const pem = await res.text();
-  certCache.set(certUrl, { pem, expiresAt: Date.now() + 6 * 60 * 60 * 1000 });
-  return pem;
+  const key = new X509Certificate(await res.text()).publicKey;
+  certCache.set(certUrl, { key, expiresAt: Date.now() + 6 * 60 * 60 * 1000 });
+  return key;
 }
 
 export async function verifyWebhookSignature(options: VerifyOptions): Promise<boolean> {
   const headers = extractHeaders(options.headers);
   if (!headers) return false;
-
-  const isSimulated = options.webhookId === "WEBHOOK_ID";
-  if (isSimulated) {
-    // Simulator events have no verifiable cert; accept only in sandbox.
-    return options.env === "sandbox";
-  }
-
+  if (!options.webhookId) return false;
+  if (options.webhookId === SIMULATOR_WEBHOOK_ID && options.env !== "sandbox") return false;
   if (!isTrustedCertUrl(headers.certUrl)) return false;
 
-  const crc = computeCrc32(options.rawBody);
   const message = buildSignedMessage({
     transmissionId: headers.transmissionId,
     timestamp: headers.timestamp,
     webhookId: options.webhookId,
-    crc,
+    crc: computeCrc32(options.rawBody),
   });
 
   try {
-    const pem = await (options.fetchCert ?? defaultFetchCert)(headers.certUrl);
-    const cert = new X509Certificate(pem);
-    return verifyWithPublicKey(message, headers.signature, cert.publicKey);
+    const key = await (options.resolveKey ?? defaultResolveKey)(headers.certUrl);
+    return verifyWithPublicKey(message, headers.signature, key);
   } catch {
     return false;
   }

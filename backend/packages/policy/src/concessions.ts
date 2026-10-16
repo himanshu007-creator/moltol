@@ -60,16 +60,20 @@ export function shouldAccept(params: {
   return incomingCents >= myNextOfferCents && incomingCents >= myLimitCents;
 }
 
-/** Buyer opening anchor from market comps, clamped below the mandate. */
+/**
+ * Buyer opening anchor from market comps, clamped below the mandate. The
+ * mandate is only a cap: a floor derived from it (the old "never open below
+ * half the budget") made a generous buyer open far above the market, and an
+ * anchor of exactly half the mandate announced the mandate to the stream.
+ */
 export function openingAnchor(params: {
   p25Cents: number;
   maxTotalCents: number;
   factor?: number;
 }): number {
   const factor = params.factor ?? 0.85;
-  const raw = roundToWholeDollars(params.p25Cents * factor);
-  const lower = Math.max(100, roundToWholeDollars(params.maxTotalCents * 0.5));
-  return Math.min(params.maxTotalCents, Math.max(lower, Math.min(raw, params.maxTotalCents)));
+  const raw = Math.max(100, roundToWholeDollars(params.p25Cents * factor));
+  return Math.min(params.maxTotalCents, raw);
 }
 
 /** Share of surplus to the buyer: f = (P - Rs) / (Rb - Rs). */

@@ -14,11 +14,16 @@ locals {
     paypal_client_id     = var.paypal_client_id
     paypal_client_secret = var.paypal_client_secret
     paypal_webhook_id    = var.paypal_webhook_id
+    allow_mock_payments  = var.allow_mock_payments
     llm_base_url         = var.llm_base_url
     llm_api_key          = var.llm_api_key
     llm_model            = var.llm_model
     channel3_api_key     = var.channel3_api_key
     seal_key             = var.seal_key
+    jwt_secret           = random_password.jwt.result
+    smtp_user            = var.smtp_user
+    smtp_password        = var.smtp_password
+    email_from           = var.email_from
   }
 }
 

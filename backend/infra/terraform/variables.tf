@@ -112,9 +112,15 @@ variable "paypal_client_secret" {
 }
 
 variable "paypal_webhook_id" {
-  description = "PayPal webhook id; simulated webhooks self-verify against this."
+  description = "PayPal webhook id. Empty => only signed simulator events (id WEBHOOK_ID, sandbox) verify."
   type        = string
   default     = ""
+}
+
+variable "allow_mock_payments" {
+  description = "\"true\" lets the API run with the offline mock checkout (no PayPal keys). Never for a public demo with real payments."
+  type        = string
+  default     = "false"
 }
 
 variable "llm_base_url" {
@@ -148,4 +154,23 @@ variable "seal_key" {
   type        = string
   sensitive   = true
   default     = ""
+}
+
+variable "smtp_user" {
+  description = "SMTP login (Brevo relay) for OTP emails. Empty => codes are only logged by the API."
+  type        = string
+  default     = ""
+}
+
+variable "smtp_password" {
+  description = "SMTP key for the relay."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "email_from" {
+  description = "Verified sender for OTP emails."
+  type        = string
+  default     = "MolTol <no-reply@moltol.app>"
 }

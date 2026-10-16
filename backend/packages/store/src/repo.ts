@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  Audience,
   CreateNegotiationInput,
   EventInput,
   MarketRange,
@@ -8,12 +9,14 @@ import type {
   NegotiationState,
   Persona,
   Side,
+  Turn,
 } from "@moltol/contracts";
 import { sealAad } from "@moltol/config";
-import { and, asc, desc, eq, inArray, lt, sql as raw } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, sql as raw } from "drizzle-orm";
 import type { Db, Sql } from "./client";
 import { decryptLimit, encryptLimit, parseSealKey } from "./seal";
 import {
+  baskets,
   negotiations,
   negotiationEvents,
   otpCodes,
@@ -27,6 +30,18 @@ import {
 } from "./schema";
 
 type NegotiationRow = typeof negotiations.$inferSelect;
+type EventRow = typeof negotiationEvents.$inferSelect;
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+export type BasketRow = typeof baskets.$inferSelect;
+export type PaymentRow = typeof payments.$inferSelect;
+export type ShopRow = typeof shops.$inferSelect;
+export type UserRow = typeof users.$inferSelect;
+
+/** `numeric` columns come back as strings; quantities are plain numbers everywhere else. */
+function toNumber(value: string | null): number | null {
+  return value === null ? null : Number(value);
+}
 
 function toNegotiation(row: NegotiationRow): Negotiation {
   return {
@@ -42,7 +57,43 @@ function toNegotiation(row: NegotiationRow): Negotiation {
     paypalCaptureId: row.paypalCaptureId,
     market: row.market,
     turns: row.turns,
+    basketId: row.basketId,
+    lineIndex: row.lineIndex,
+    shopItemId: row.shopItemId,
+    itemEmoji: row.itemEmoji,
+    itemUnit: row.itemUnit,
+    qty: toNumber(row.qty),
+    openCents: row.openCents,
+    shopPersona: row.shopPersona as Persona | null,
+    controlled: row.controlled,
     createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function toEvent(row: EventRow): NegotiationEvent {
+  return {
+    v: 1,
+    id: row.id,
+    seq: row.seq,
+    negotiationId: row.negotiationId,
+    ts: row.createdAt.toISOString(),
+    audience: row.audience as NegotiationEvent["audience"],
+    t: row.type,
+    ...row.payload,
+  } as NegotiationEvent;
+}
+
+/** The stored row keeps the envelope's id and timestamp, so a backfill matches what was published. */
+function toEventRow(event: NegotiationEvent): typeof negotiationEvents.$inferInsert {
+  const { v: _v, id, ts, negotiationId, seq, audience, t, ...body } = event;
+  return {
+    id,
+    negotiationId,
+    seq,
+    type: t,
+    audience,
+    payload: body as Record<string, unknown>,
+    createdAt: new Date(ts),
   };
 }
 
@@ -53,6 +104,57 @@ export interface SealedRecord {
   limitCents: number;
   saltHex: string;
   domainCents: number | null;
+}
+
+/** Who is writing a step. Agent steps are refused while a human controls the negotiation. */
+export type StepActor = "agent" | "human" | "system";
+
+/** An event body; `audience` defaults to "all" (the public stream). */
+export type StepBody = EventInput & { audience?: Audience };
+
+export interface StepCommit {
+  negotiationId: string;
+  /** The seq the first new event must take; null appends at the end. A mismatch writes nothing. */
+  expectedSeq: number | null;
+  bodies: StepBody[];
+  actor: StepActor;
+  /** Write nothing when the log already holds an event of this type (once-only events). */
+  onceType?: NegotiationEvent["t"];
+  patch?: Partial<{
+    turns: Turn[];
+    agreedPriceCents: number;
+    market: MarketRange;
+    controlled: boolean;
+  }>;
+  /** Applied in the same transaction. `required`: write nothing unless the state is in `from`. */
+  transition?: { from: NegotiationState[]; to: NegotiationState; required?: boolean };
+}
+
+export interface NewBasketLine {
+  /** Pre-generated negotiation id: the sealed commitments bind to it. */
+  id: string;
+  shopItemId: string;
+  name: string;
+  emoji: string | null;
+  unit: string | null;
+  qty: number;
+  /** The shop's list price per unit (its public opening ask). */
+  openCents: number;
+  /** The buyer's per-unit ceiling; also sealed in `sealed`. */
+  maxCents: number;
+  sealed: SealedRecord[];
+}
+
+export interface NewBasket {
+  buyerUserId: string;
+  shopId: string;
+  currency: string;
+  roundsMax: number;
+  tone: string;
+  preset: string | null;
+  buyerPersona: Persona;
+  shopPersona: Persona;
+  lines: NewBasketLine[];
 }
 
 /**
@@ -74,6 +176,8 @@ export class MoltolStore {
     await this.sql`SELECT 1`;
     return true;
   }
+
+  /* ------------------------------ negotiations ----------------------------- */
 
   async createNegotiation(input: CreateNegotiationInput): Promise<Negotiation> {
     const rows = await this.db
@@ -104,25 +208,6 @@ export class MoltolStore {
     return rows.length > 0;
   }
 
-  async setAgreed(
-    id: string,
-    priceCents: number,
-    market: MarketRange | null,
-    turns: Negotiation["turns"],
-  ): Promise<void> {
-    await this.db
-      .update(negotiations)
-      .set({ agreedPriceCents: priceCents, market, turns, updatedAt: new Date() })
-      .where(eq(negotiations.id, id));
-  }
-
-  async setTurns(id: string, turns: Negotiation["turns"]): Promise<void> {
-    await this.db
-      .update(negotiations)
-      .set({ turns, updatedAt: new Date() })
-      .where(eq(negotiations.id, id));
-  }
-
   async setPayment(id: string, orderId: string, captureId?: string): Promise<void> {
     await this.db
       .update(negotiations)
@@ -136,21 +221,82 @@ export class MoltolStore {
 
   /* -------------------------------- events -------------------------------- */
 
-  async nextSeq(negotiationId: string): Promise<number> {
-    const rows = await this.db
-      .select({ max: raw<number | null>`max(${negotiationEvents.seq})` })
-      .from(negotiationEvents)
-      .where(eq(negotiationEvents.negotiationId, negotiationId));
-    const max = rows[0]?.max ?? null;
-    return max === null ? 0 : max + 1;
+  /**
+   * The only way an event enters the log. Serialized per negotiation with an
+   * advisory lock, so `seq` is gap-free and two writers (the agent runner and a
+   * human taking over) can never interleave or overwrite each other. Returns the
+   * written events, or null when the commit was refused (stale `expectedSeq`,
+   * agent vs. human control, once-only duplicate, or a required transition).
+   */
+  async commitStep(c: StepCommit): Promise<NegotiationEvent[] | null> {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(raw`SELECT pg_advisory_xact_lock(hashtextextended(${c.negotiationId}, 0))`);
+      const [row] = await tx
+        .select({ state: negotiations.state, controlled: negotiations.controlled })
+        .from(negotiations)
+        .where(eq(negotiations.id, c.negotiationId))
+        .limit(1);
+      if (!row) throw new Error(`negotiation ${c.negotiationId} not found`);
+      if (c.actor === "agent" && row.controlled) return null;
+
+      const transitionApplies = c.transition
+        ? c.transition.from.includes(row.state as NegotiationState)
+        : false;
+      if (c.transition?.required && !transitionApplies) return null;
+
+      if (c.onceType) {
+        const dup = await tx
+          .select({ id: negotiationEvents.id })
+          .from(negotiationEvents)
+          .where(
+            and(
+              eq(negotiationEvents.negotiationId, c.negotiationId),
+              eq(negotiationEvents.type, c.onceType),
+            ),
+          )
+          .limit(1);
+        if (dup.length > 0) return null;
+      }
+
+      const next = await nextSeqIn(tx, c.negotiationId);
+      if (c.expectedSeq !== null && c.expectedSeq !== next) return null;
+
+      const now = new Date();
+      const events = c.bodies.map(
+        ({ audience, ...body }, i) =>
+          ({
+            v: 1,
+            id: randomUUID(),
+            seq: next + i,
+            negotiationId: c.negotiationId,
+            ts: now.toISOString(),
+            audience: audience ?? "all",
+            ...body,
+          }) as NegotiationEvent,
+      );
+      if (events.length > 0) await tx.insert(negotiationEvents).values(events.map(toEventRow));
+
+      const set: Partial<typeof negotiations.$inferInsert> = { updatedAt: now, ...c.patch };
+      if (transitionApplies) set.state = c.transition!.to;
+      await tx.update(negotiations).set(set).where(eq(negotiations.id, c.negotiationId));
+      return events;
+    });
   }
 
-  async appendEvent(event: NegotiationEvent): Promise<void> {
-    const { v: _v, id: _id, ts: _ts, negotiationId, seq, audience, t, ...body } = event;
-    await this.db
-      .insert(negotiationEvents)
-      .values({ negotiationId, seq, type: t, audience, payload: body as Record<string, unknown> })
-      .onConflictDoNothing();
+  /** Append one platform event (payment, proof, timeout) at the end of the log. */
+  async appendSystemEvent(
+    negotiationId: string,
+    body: StepBody,
+    options: Pick<StepCommit, "onceType" | "transition"> = {},
+  ): Promise<NegotiationEvent | null> {
+    const events = await this.commitStep({
+      negotiationId,
+      expectedSeq: null,
+      bodies: [body],
+      actor: "system",
+      ...options,
+    });
+    return events?.[0] ?? null;
   }
 
   async listEvents(negotiationId: string, afterSeq = -1): Promise<NegotiationEvent[]> {
@@ -164,32 +310,7 @@ export class MoltolStore {
         ),
       )
       .orderBy(asc(negotiationEvents.seq));
-    return rows.map(
-      (row) =>
-        ({
-          v: 1,
-          id: row.id,
-          seq: row.seq,
-          negotiationId: row.negotiationId,
-          ts: row.createdAt.toISOString(),
-          audience: row.audience as NegotiationEvent["audience"],
-          t: row.type,
-          ...(row.payload as Record<string, unknown>),
-        }) as NegotiationEvent,
-    );
-  }
-
-  /** Build a full event envelope from a producer's body. */
-  makeEvent(negotiationId: string, seq: number, body: EventInput): NegotiationEvent {
-    return {
-      v: 1,
-      id: randomUUID(),
-      seq,
-      negotiationId,
-      ts: new Date().toISOString(),
-      audience: "all",
-      ...body,
-    } as NegotiationEvent;
+    return rows.map(toEvent);
   }
 
   /* ------------------------------- sealed vault ---------------------------- */
@@ -204,20 +325,24 @@ export class MoltolStore {
     return { limitCents: null, limitEnc: encryptLimit(record.limitCents, aad, this.sealKey) };
   }
 
+  private sealedRow(record: SealedRecord): typeof sealedSecrets.$inferInsert {
+    return {
+      negotiationId: record.negotiationId,
+      side: record.side,
+      commitment: record.commitment,
+      saltHex: record.saltHex,
+      domainCents: record.domainCents,
+      ...this.sealedColumns(record),
+    };
+  }
+
+  /**
+   * Seal a limit, first writer wins. A seal is never replaced: its commitment may
+   * already be on the wire, and a second salt would make the proof unverifiable.
+   * Callers re-read with `getSealed` to get the record that won.
+   */
   async putSealed(record: SealedRecord): Promise<void> {
-    const limit = this.sealedColumns(record);
-    await this.db
-      .insert(sealedSecrets)
-      .values({ ...record, ...limit })
-      .onConflictDoUpdate({
-        target: [sealedSecrets.negotiationId, sealedSecrets.side],
-        set: {
-          commitment: record.commitment,
-          ...limit,
-          saltHex: record.saltHex,
-          domainCents: record.domainCents,
-        },
-      });
+    await this.db.insert(sealedSecrets).values(this.sealedRow(record)).onConflictDoNothing();
   }
 
   async getSealed(negotiationId: string, side: Side): Promise<SealedRecord | null> {
@@ -247,18 +372,169 @@ export class MoltolStore {
     };
   }
 
+  /* --------------------------------- baskets -------------------------------- */
+
+  /** Basket + one negotiation per line + both sealed limits per line, atomically. */
+  async createBasket(input: NewBasket): Promise<{ basketId: string }> {
+    return this.db.transaction(async (tx) => {
+      const [basket] = await tx
+        .insert(baskets)
+        .values({
+          buyerUserId: input.buyerUserId,
+          shopId: input.shopId,
+          currency: input.currency,
+          roundsMax: input.roundsMax,
+          tone: input.tone,
+          preset: input.preset,
+        })
+        .returning({ id: baskets.id });
+      const basketId = basket!.id;
+      await tx.insert(negotiations).values(
+        input.lines.map((line, i) => ({
+          id: line.id,
+          query: line.name,
+          persona: input.buyerPersona,
+          roundsMax: input.roundsMax,
+          maxTotalCents: line.maxCents,
+          currency: input.currency,
+          basketId,
+          lineIndex: i,
+          shopItemId: line.shopItemId,
+          itemEmoji: line.emoji,
+          itemUnit: line.unit,
+          qty: String(line.qty),
+          openCents: line.openCents,
+          shopPersona: input.shopPersona,
+        })),
+      );
+      await tx
+        .insert(sealedSecrets)
+        .values(input.lines.flatMap((line) => line.sealed.map((s) => this.sealedRow(s))));
+      return { basketId };
+    });
+  }
+
+  async getBasket(id: string): Promise<BasketRow | null> {
+    const rows = await this.db.select().from(baskets).where(eq(baskets.id, id)).limit(1);
+    return rows[0] ?? null;
+  }
+
+  async listBasketLines(basketId: string): Promise<Negotiation[]> {
+    const rows = await this.db
+      .select()
+      .from(negotiations)
+      .where(eq(negotiations.basketId, basketId))
+      .orderBy(asc(negotiations.lineIndex));
+    return rows.map(toNegotiation);
+  }
+
+  async listBasketLinesFor(basketIds: string[]): Promise<Negotiation[]> {
+    if (basketIds.length === 0) return [];
+    const rows = await this.db
+      .select()
+      .from(negotiations)
+      .where(inArray(negotiations.basketId, basketIds))
+      .orderBy(asc(negotiations.lineIndex));
+    return rows.map(toNegotiation);
+  }
+
+  async listBuyerBaskets(buyerUserId: string, limit = 50): Promise<BasketRow[]> {
+    return this.db
+      .select()
+      .from(baskets)
+      .where(eq(baskets.buyerUserId, buyerUserId))
+      .orderBy(desc(baskets.createdAt))
+      .limit(limit);
+  }
+
+  async listPaidShopBaskets(shopId: string, since?: Date, limit = 200): Promise<BasketRow[]> {
+    return this.db
+      .select()
+      .from(baskets)
+      .where(
+        and(
+          eq(baskets.shopId, shopId),
+          eq(baskets.state, "paid"),
+          since ? gte(baskets.paidAt, since) : undefined,
+        ),
+      )
+      .orderBy(desc(baskets.paidAt))
+      .limit(limit);
+  }
+
+  /** Conditional basket state change; true only for the call that made it. */
+  async transitionBasket(id: string, from: string[], to: string): Promise<boolean> {
+    const rows = await this.db
+      .update(baskets)
+      .set({ state: to, updatedAt: new Date() })
+      .where(and(eq(baskets.id, id), inArray(baskets.state, from)))
+      .returning({ id: baskets.id });
+    return rows.length > 0;
+  }
+
+  /**
+   * Mark a basket paid and take the sold quantities out of stock, once: only
+   * the call that flips it to paid touches stock. From "open" too, so a checkout
+   * interrupted before the basket moved to payment_pending still settles.
+   * Returns the lines that sold more than was left (stock is floored at 0).
+   */
+  async markBasketPaid(
+    basketId: string,
+    sold: { shopItemId: string; qty: number }[],
+  ): Promise<{ flipped: boolean; oversold: string[] }> {
+    return this.db.transaction(async (tx) => {
+      const now = new Date();
+      const flipped = await tx
+        .update(baskets)
+        .set({ state: "paid", paidAt: now, updatedAt: now })
+        .where(and(eq(baskets.id, basketId), inArray(baskets.state, ["open", "payment_pending"])))
+        .returning({ id: baskets.id });
+      if (flipped.length === 0) return { flipped: false, oversold: [] };
+      const oversold: string[] = [];
+      for (const line of sold) {
+        const [item] = await tx
+          .select({ quantity: shopItems.quantity })
+          .from(shopItems)
+          .where(eq(shopItems.id, line.shopItemId))
+          .for("update");
+        if (!item || item.quantity === null) continue; // stock not tracked (or item deleted)
+        if (Number(item.quantity) < line.qty) oversold.push(line.shopItemId);
+        await tx
+          .update(shopItems)
+          .set({
+            quantity: raw`GREATEST(${shopItems.quantity} - ${String(line.qty)}::numeric, 0)`,
+            updatedAt: now,
+          })
+          .where(eq(shopItems.id, line.shopItemId));
+      }
+      return { flipped: true, oversold };
+    });
+  }
+
   /* -------------------------------- payments ------------------------------- */
 
   async createPayment(input: {
-    negotiationId: string;
+    negotiationId?: string | null;
+    basketId?: string | null;
     paypalOrderId: string;
+    approveUrl?: string | null;
     amountCents: number;
     currency: string;
   }): Promise<void> {
-    await this.db.insert(payments).values(input).onConflictDoNothing();
+    await this.db
+      .insert(payments)
+      .values({
+        negotiationId: input.negotiationId ?? null,
+        basketId: input.basketId ?? null,
+        paypalOrderId: input.paypalOrderId,
+        approveUrl: input.approveUrl ?? null,
+        amountCents: input.amountCents,
+        currency: input.currency,
+      })
+      .onConflictDoNothing();
   }
 
-  async getPaymentByNegotiation(negotiationId: string) {
+  async getPaymentByNegotiation(negotiationId: string): Promise<PaymentRow | null> {
     const rows = await this.db
       .select()
       .from(payments)
@@ -267,7 +543,21 @@ export class MoltolStore {
     return rows[0] ?? null;
   }
 
-  async getPaymentByOrder(paypalOrderId: string) {
+  async getPaymentByBasket(basketId: string): Promise<PaymentRow | null> {
+    const rows = await this.db
+      .select()
+      .from(payments)
+      .where(eq(payments.basketId, basketId))
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
+  async getPaymentsByBaskets(basketIds: string[]): Promise<PaymentRow[]> {
+    if (basketIds.length === 0) return [];
+    return this.db.select().from(payments).where(inArray(payments.basketId, basketIds));
+  }
+
+  async getPaymentByOrder(paypalOrderId: string): Promise<PaymentRow | null> {
     const rows = await this.db
       .select()
       .from(payments)
@@ -276,15 +566,30 @@ export class MoltolStore {
     return rows[0] ?? null;
   }
 
-  async updatePaymentStatus(
+  /**
+   * Conditional status change. With `onlyFrom`, true only for the call that
+   * actually moved it — the idempotency latch for capture/webhook races.
+   */
+  async setPaymentStatus(
     paypalOrderId: string,
     status: string,
-    captureId?: string,
-  ): Promise<void> {
-    await this.db
+    options: { captureId?: string | null; onlyFrom?: string[] } = {},
+  ): Promise<boolean> {
+    const rows = await this.db
       .update(payments)
-      .set({ status, ...(captureId ? { paypalCaptureId: captureId } : {}), updatedAt: new Date() })
-      .where(eq(payments.paypalOrderId, paypalOrderId));
+      .set({
+        status,
+        ...(options.captureId ? { paypalCaptureId: options.captureId } : {}),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(payments.paypalOrderId, paypalOrderId),
+          options.onlyFrom ? inArray(payments.status, options.onlyFrom) : undefined,
+        ),
+      )
+      .returning({ id: payments.id });
+    return rows.length > 0;
   }
 
   /* -------------------------------- webhooks ------------------------------- */
@@ -301,6 +606,11 @@ export class MoltolStore {
       .onConflictDoNothing()
       .returning({ id: webhookEvents.id });
     return rows.length > 0;
+  }
+
+  /** Release a webhook id whose processing failed, so PayPal's retry is not treated as a duplicate. */
+  async forgetWebhook(id: string): Promise<void> {
+    await this.db.delete(webhookEvents).where(eq(webhookEvents.id, id));
   }
 
   /* --------------------------------- proofs -------------------------------- */
@@ -339,9 +649,14 @@ export class MoltolStore {
     return rows[0] ?? null;
   }
 
+  async getProofs(negotiationIds: string[]) {
+    if (negotiationIds.length === 0) return [];
+    return this.db.select().from(proofs).where(inArray(proofs.negotiationId, negotiationIds));
+  }
+
   /* --------------------------------- users --------------------------------- */
 
-  async createUser(input: { email: string; passwordHash: string }) {
+  async createUser(input: { email: string; passwordHash: string }): Promise<UserRow> {
     const rows = await this.db
       .insert(users)
       .values({ email: input.email, passwordHash: input.passwordHash })
@@ -349,21 +664,32 @@ export class MoltolStore {
     return rows[0]!;
   }
 
-  async getUserByEmail(email: string) {
+  async getUserByEmail(email: string): Promise<UserRow | null> {
     const rows = await this.db.select().from(users).where(eq(users.email, email)).limit(1);
     return rows[0] ?? null;
   }
 
-  async getUserById(id: string) {
+  async getUserById(id: string): Promise<UserRow | null> {
     const rows = await this.db.select().from(users).where(eq(users.id, id)).limit(1);
     return rows[0] ?? null;
   }
 
-  async setUserPassword(id: string, passwordHash: string): Promise<void> {
-    await this.db
+  /** New password; with `revokeSessions`, every token issued before now stops working. */
+  async setUserPassword(
+    id: string,
+    passwordHash: string,
+    options: { revokeSessions?: boolean } = {},
+  ): Promise<UserRow | null> {
+    const rows = await this.db
       .update(users)
-      .set({ passwordHash, updatedAt: new Date() })
-      .where(eq(users.id, id));
+      .set({
+        passwordHash,
+        ...(options.revokeSessions ? { tokenVersion: raw`${users.tokenVersion} + 1` } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, id))
+      .returning();
+    return rows[0] ?? null;
   }
 
   async markEmailVerified(id: string): Promise<void> {
@@ -371,6 +697,18 @@ export class MoltolStore {
       .update(users)
       .set({ emailVerifiedAt: new Date(), updatedAt: new Date() })
       .where(eq(users.id, id));
+  }
+
+  async setUserPreferences(
+    id: string,
+    patch: Partial<{ activeRole: string; hagglePreset: string }>,
+  ): Promise<UserRow | null> {
+    const rows = await this.db
+      .update(users)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    return rows[0] ?? null;
   }
 
   /* -------------------------------- OTP codes ------------------------------ */
@@ -398,25 +736,95 @@ export class MoltolStore {
       .where(eq(otpCodes.id, id));
   }
 
-  async consumeOtp(id: string): Promise<void> {
-    await this.db.update(otpCodes).set({ consumedAt: new Date() }).where(eq(otpCodes.id, id));
+  /** Consume a code once: true only for the call that consumed it (two parallel verifies can't both win). */
+  async consumeOtp(id: string): Promise<boolean> {
+    const rows = await this.db
+      .update(otpCodes)
+      .set({ consumedAt: new Date() })
+      .where(and(eq(otpCodes.id, id), raw`${otpCodes.consumedAt} IS NULL`))
+      .returning({ id: otpCodes.id });
+    return rows.length > 0;
   }
 
   /* --------------------------------- shops ---------------------------------- */
 
-  async createShop(input: { userId: string; name: string; emoji: string }) {
+  async createShop(input: {
+    userId: string;
+    name: string;
+    emoji: string;
+    persona?: string;
+    currency: string;
+    lat?: number | null;
+    lng?: number | null;
+  }): Promise<ShopRow> {
     const rows = await this.db.insert(shops).values(input).returning();
     return rows[0]!;
   }
 
-  async getShopByUserId(userId: string) {
+  async getShopByUserId(userId: string): Promise<ShopRow | null> {
     const rows = await this.db.select().from(shops).where(eq(shops.userId, userId)).limit(1);
     return rows[0] ?? null;
   }
 
-  async getShopById(id: string) {
+  async getShopById(id: string): Promise<ShopRow | null> {
     const rows = await this.db.select().from(shops).where(eq(shops.id, id)).limit(1);
     return rows[0] ?? null;
+  }
+
+  async updateShop(
+    id: string,
+    patch: Partial<{
+      name: string;
+      emoji: string;
+      persona: string;
+      lat: number | null;
+      lng: number | null;
+      isOpen: boolean;
+      closeAt: Date | null;
+      reopenAt: Date | null;
+    }>,
+  ): Promise<ShopRow | null> {
+    const rows = await this.db
+      .update(shops)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(shops.id, id))
+      .returning();
+    return rows[0] ?? null;
+  }
+
+  /** Shops with a location inside a lat/lng box; the caller computes exact distance. */
+  async shopsInBox(box: {
+    minLat: number;
+    maxLat: number;
+    minLng: number;
+    maxLng: number;
+  }): Promise<ShopRow[]> {
+    return this.db
+      .select()
+      .from(shops)
+      .where(
+        and(
+          isNotNull(shops.lat),
+          isNotNull(shops.lng),
+          gte(shops.lat, box.minLat),
+          lte(shops.lat, box.maxLat),
+          gte(shops.lng, box.minLng),
+          lte(shops.lng, box.maxLng),
+        ),
+      )
+      .limit(500);
+  }
+
+  async countItemsByShop(shopIds: string[]): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    if (shopIds.length === 0) return out;
+    const rows = await this.db
+      .select({ shopId: shopItems.shopId, count: raw<number>`count(*)::int` })
+      .from(shopItems)
+      .where(inArray(shopItems.shopId, shopIds))
+      .groupBy(shopItems.shopId);
+    for (const row of rows) out.set(row.shopId, Number(row.count));
+    return out;
   }
 
   /* ------------------------------ shop items --------------------------------- */
@@ -431,17 +839,32 @@ export class MoltolStore {
     unit?: string;
     hindiName?: string;
   }) {
-    const rows = await this.db.insert(shopItems).values(input).returning();
-    return rows[0]!;
+    const { quantity, ...rest } = input;
+    const rows = await this.db
+      .insert(shopItems)
+      .values({ ...rest, ...(quantity !== undefined ? { quantity: String(quantity) } : {}) })
+      .returning();
+    return toShopItemRow(rows[0]!);
   }
 
   async listShopItems(shopId: string) {
-    return this.db.select().from(shopItems).where(eq(shopItems.shopId, shopId));
+    const rows = await this.db
+      .select()
+      .from(shopItems)
+      .where(eq(shopItems.shopId, shopId))
+      .orderBy(asc(shopItems.createdAt));
+    return rows.map(toShopItemRow);
   }
 
   async getShopItem(id: string) {
     const rows = await this.db.select().from(shopItems).where(eq(shopItems.id, id)).limit(1);
-    return rows[0] ?? null;
+    return rows[0] ? toShopItemRow(rows[0]) : null;
+  }
+
+  async getShopItems(ids: string[]) {
+    if (ids.length === 0) return [];
+    const rows = await this.db.select().from(shopItems).where(inArray(shopItems.id, ids));
+    return rows.map(toShopItemRow);
   }
 
   async updateShopItem(
@@ -456,12 +879,19 @@ export class MoltolStore {
       hindiName: string | null;
     }>,
   ) {
+    const { quantity, ...rest } = patch;
     const rows = await this.db
       .update(shopItems)
-      .set({ ...patch, updatedAt: new Date() })
+      .set({
+        ...rest,
+        ...(quantity !== undefined
+          ? { quantity: quantity === null ? null : String(quantity) }
+          : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(shopItems.id, id))
       .returning();
-    return rows[0] ?? null;
+    return rows[0] ? toShopItemRow(rows[0]) : null;
   }
 
   async deleteShopItem(id: string): Promise<boolean> {
@@ -474,11 +904,38 @@ export class MoltolStore {
 
   /* -------------------------------- sweeper -------------------------------- */
 
-  async staleNegotiations(before: Date, states: NegotiationState[]): Promise<string[]> {
+  async staleNegotiations(
+    before: Date,
+    states: NegotiationState[],
+    options: { controlled?: boolean } = {},
+  ): Promise<string[]> {
     const rows = await this.db
       .select({ id: negotiations.id })
       .from(negotiations)
-      .where(and(inArray(negotiations.state, states), lt(negotiations.updatedAt, before)));
+      .where(
+        and(
+          inArray(negotiations.state, states),
+          lt(negotiations.updatedAt, before),
+          options.controlled === undefined
+            ? undefined
+            : eq(negotiations.controlled, options.controlled),
+        ),
+      );
     return rows.map((r) => r.id);
   }
+}
+
+export type ShopItemRow = ReturnType<typeof toShopItemRow>;
+
+function toShopItemRow(row: typeof shopItems.$inferSelect) {
+  return { ...row, quantity: toNumber(row.quantity) };
+}
+
+async function nextSeqIn(tx: Tx, negotiationId: string): Promise<number> {
+  const rows = await tx
+    .select({ max: raw<number | null>`max(${negotiationEvents.seq})` })
+    .from(negotiationEvents)
+    .where(eq(negotiationEvents.negotiationId, negotiationId));
+  const max = rows[0]?.max;
+  return max === null || max === undefined ? 0 : Number(max) + 1;
 }

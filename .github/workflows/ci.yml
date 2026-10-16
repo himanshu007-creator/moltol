@@ -17,6 +17,28 @@ jobs:
         # the backend workspace (package.json, pnpm-lock.yaml, turbo.json) lives
         # in backend/ now that this repo also holds the frontend, in frontend/
         working-directory: backend
+    # Throwaway Postgres + Redis so the API integration tests (apps/api/test)
+    # run end to end instead of skipping.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: moltol
+          POSTGRES_PASSWORD: moltol
+          POSTGRES_DB: moltol_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U moltol -d moltol_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+    env:
+      TEST_DATABASE_URL: postgres://moltol:moltol@localhost:5432/moltol_test
+      TEST_REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
         with:
