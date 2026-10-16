@@ -11,12 +11,15 @@ frontend/   Astro + React UI. Runs standalone in mock mode — no backend needed
 backend/    Fastify API + worker + Postgres/Redis. A pnpm/turbo workspace of its own.
 ```
 
-**Status: not wired together yet.** The frontend talks to its own mock data
-layer (`frontend/src/lib/mock/`) and persists everything in the browser
-(IndexedDB); the backend runs and is tested on its own. Connecting them —
-pointing the frontend's `PUBLIC_API_BASE` at the backend's API and swapping
-the mock adapters for real calls — is the next piece of work, documented in
-`frontend/README.md`'s "Wiring the backend" section.
+**Status: backend ready, frontend not wired to it yet.** Auth, vendor shops and
+the market-comps check already call the real backend. The core loop — haggling
+a basket against a real shop, taking a lane over, paying once through PayPal,
+the Proof of Fair Deal, orders, discovery and stall status — now exists in the
+backend (`backend/README.md`, "The basket haggle"), but the frontend still runs
+those flows on its own mock layer (`frontend/src/lib/mock/`, IndexedDB).
+Swapping those adapters for the real endpoints is the next piece of work; the
+endpoint-by-endpoint map is in `BE_MISSING_THINGS.md` ("Backend pass,
+2026-10-16").
 
 ## Run the frontend
 

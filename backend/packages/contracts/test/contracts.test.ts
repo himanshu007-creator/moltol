@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   canTransition,
+  CreateBasketSchema,
+  formatCents,
   formatMoney,
+  isValidQty,
+  isValidStock,
+  lineCents,
   NegotiationEventSchema,
   MoneySchema,
   mustTransition,
@@ -57,5 +62,70 @@ describe("event envelope", () => {
       turn: { seq: 3, actor: "buyer", kind: "counter", priceCents: 32.5, message: "hi" },
     });
     expect(bad.success).toBe(false);
+  });
+});
+
+describe("quantities", () => {
+  it("lets mass and volume take up to 3 decimals and keeps counts whole", () => {
+    expect(isValidQty(0.25, "kg")).toBe(true);
+    expect(isValidQty(0.0005, "kg")).toBe(false);
+    expect(isValidQty(1.5, "piece")).toBe(false);
+    expect(isValidQty(2, "500g")).toBe(true);
+    expect(isValidQty(0, "kg")).toBe(false);
+    expect(isValidStock(0, "piece")).toBe(true);
+  });
+
+  it("totals a line in integer cents, rounding once", () => {
+    expect(lineCents(3350, 0.25)).toBe(838);
+    expect(Number.isInteger(lineCents(4123, 1.375))).toBe(true);
+  });
+});
+
+describe("basket contracts", () => {
+  const item = "00000000-0000-4000-8000-000000000010";
+  const shopId = "00000000-0000-4000-8000-000000000011";
+
+  it("fills the haggle request with the balanced defaults", () => {
+    const parsed = CreateBasketSchema.parse({ shopId, lines: [{ itemId: item, qty: 1 }] });
+    expect(parsed.request).toEqual({ rounds: 5, tone: "playful" });
+  });
+
+  it("rejects the same item twice in one basket", () => {
+    const parsed = CreateBasketSchema.safeParse({
+      shopId,
+      lines: [
+        { itemId: item, qty: 1 },
+        { itemId: item, qty: 2 },
+      ],
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("accepts a deal without the pre-reveal fairness and a control change", () => {
+    const envelope = {
+      v: 1,
+      id: "00000000-0000-4000-8000-000000000000",
+      seq: 9,
+      negotiationId: "00000000-0000-4000-8000-000000000001",
+      ts: new Date().toISOString(),
+    };
+    expect(
+      NegotiationEventSchema.safeParse({
+        ...envelope,
+        t: "deal.agreed",
+        priceCents: 3500,
+        currency: "INR",
+      }).success,
+    ).toBe(true);
+    expect(
+      NegotiationEventSchema.safeParse({ ...envelope, t: "control.changed", controller: "human" })
+        .success,
+    ).toBe(true);
+  });
+
+  it("formats prices for wording in the line's currency", () => {
+    expect(formatCents(3500, "INR")).toBe("₹35");
+    expect(formatCents(3550, "INR")).toBe("₹35.50");
+    expect(formatCents(3500, "USD")).toBe("$35.00");
   });
 });

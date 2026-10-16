@@ -45,6 +45,24 @@ export const AuthUserSchema = z.object({
 });
 export type AuthUser = z.infer<typeof AuthUserSchema>;
 
+/** One account holds both roles; the active one is a view preference, not a permission. */
+export const RoleSchema = z.enum(["buyer", "seller"]);
+export type Role = z.infer<typeof RoleSchema>;
+
+export const HagglePresetSchema = z.enum(["quick", "balanced", "hard"]);
+export type HagglePreset = z.infer<typeof HagglePresetSchema>;
+
+export const SetRoleRequestSchema = z.object({ activeRole: RoleSchema });
+export const SetHagglePresetRequestSchema = z.object({ preset: HagglePresetSchema });
+
+/** GET /v1/me */
+export const MeSchema = AuthUserSchema.extend({
+  activeRole: RoleSchema,
+  hagglePreset: HagglePresetSchema,
+  shop: z.object({ id: z.string().uuid(), name: z.string(), emoji: z.string() }).optional(),
+});
+export type Me = z.infer<typeof MeSchema>;
+
 export const AuthSessionSchema = z.object({
   token: z.string(),
   user: AuthUserSchema,

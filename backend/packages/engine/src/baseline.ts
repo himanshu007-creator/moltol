@@ -27,11 +27,13 @@ export interface ShopModel {
 }
 
 /**
- * Derive this negotiation's counterparty shop from its id + market, so the
- * secret floor is stable across restarts but varies per negotiation.
+ * Derive a standalone negotiation's counterparty shop from a seed + the market.
+ * The engine seeds it with the shop seal's secret salt, so the floor is fixed
+ * once sealed but can't be computed by anyone else before the reveal (seeding it
+ * with the public negotiation id, as before, made it computable).
  */
-export function deriveShop(negotiationId: string, market: MarketRange): ShopModel {
-  const rand = seededRandom(`shop:${negotiationId}`);
+export function deriveShop(seed: string, market: MarketRange): ShopModel {
+  const rand = seededRandom(`shop:${seed}`);
   const floorFactor = 0.85 + rand() * 0.18;
   const floorCents = Math.max(
     100,

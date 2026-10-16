@@ -1,55 +1,41 @@
-import { randomUUID } from "node:crypto";
-import type { FastifyInstance, FastifyReply } from "fastify";
-import {
-  CheckoutInputSchema,
-  CreateNegotiationSchema,
-  problem,
-  type NegotiationEvent,
-} from "@moltol/contracts";
-import { eventChannel, SSE_HEARTBEAT_MS } from "@moltol/config";
-import type { Redis } from "ioredis";
-import type { Container } from "./container";
+import type { FastifyInstance } from "fastify";
+import { CreateNegotiationSchema } from "@moltol/contracts";
 import type { NegotiationRunner } from "@moltol/engine";
+import { PayPalApiError, SIMULATOR_WEBHOOK_ID, verifyWebhookSignature } from "@moltol/paypal";
+import type { Container } from "./container";
+import { invalidBody, isUuid, sendKnownError, sendProblem } from "./http";
+import { applyCapture, approveAndCapture, refundPayment, settleCapture } from "./payments";
 import { revealProof } from "./proof";
-import { verifyWebhookSignature } from "@moltol/paypal";
-import { registerAuthRoutes } from "./auth-routes";
-import { registerShopRoutes } from "./shop-routes";
+import { resumeSeqs, streamNegotiations } from "./sse";
 
 export interface RouteDeps {
   container: Container;
   runner: NegotiationRunner;
 }
 
-function sendProblem(reply: FastifyReply, status: number, title: string, detail?: string): void {
-  reply
-    .code(status)
-    .type("application/problem+json")
-    .send(problem(status, title, detail));
+interface PayPalWebhookBody {
+  id?: string;
+  event_type?: string;
+  resource?: {
+    id?: string;
+    supplementary_data?: { related_ids?: { order_id?: string } };
+  };
 }
 
-async function publish(redis: Redis, event: NegotiationEvent): Promise<void> {
-  await redis.publish(eventChannel(event.negotiationId), JSON.stringify(event));
-}
-
-export async function registerRoutes(app: FastifyInstance, deps: RouteDeps): Promise<void> {
+/**
+ * Health, the standalone agent-vs-agent negotiation (the original demo: one
+ * query, a market-derived shop), the PayPal webhook, and market comps. Baskets,
+ * shops, auth and orders register their own routes.
+ */
+export async function registerCoreRoutes(app: FastifyInstance, deps: RouteDeps): Promise<void> {
   const { container, runner } = deps;
   const { store, redis, env, market, checkout } = container;
 
-  const emit = async (event: NegotiationEvent): Promise<void> => {
-    await store.appendEvent(event);
-    await publish(redis, event);
-  };
-
-  /* ----------------------------- auth / vendor ----------------------------- */
-
-  await registerAuthRoutes(app, container);
-  await registerShopRoutes(app, container);
-
   /* --------------------------------- health -------------------------------- */
 
-  app.get("/healthz", async () => ({ status: "ok" }));
+  app.get("/healthz", { config: { rateLimit: false } }, async () => ({ status: "ok" }));
 
-  app.get("/readyz", async (_req, reply) => {
+  app.get("/readyz", { config: { rateLimit: false } }, async (_req, reply) => {
     const checks: Record<string, boolean> = {};
     try {
       checks.postgres = await store.ping();
@@ -73,19 +59,22 @@ export async function registerRoutes(app: FastifyInstance, deps: RouteDeps): Pro
     paypal: checkout.captures ? "real" : "mock",
   }));
 
-  /* ------------------------------ negotiations ----------------------------- */
+  /* ------------------------ standalone negotiations ------------------------ */
 
-  app.post("/v1/negotiations", async (req, reply) => {
-    const parsed = CreateNegotiationSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return sendProblem(reply, 400, "invalid_body", JSON.stringify(parsed.error.flatten()));
-    }
-    const negotiation = await store.createNegotiation(parsed.data);
-    await runner.enqueue(negotiation.id);
-    return reply.code(201).send(negotiation);
-  });
+  app.post(
+    "/v1/negotiations",
+    { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
+    async (req, reply) => {
+      const parsed = CreateNegotiationSchema.safeParse(req.body);
+      if (!parsed.success) return invalidBody(reply, parsed.error);
+      const negotiation = await store.createNegotiation(parsed.data);
+      await runner.enqueue(negotiation.id);
+      return reply.code(201).send(negotiation);
+    },
+  );
 
   app.get<{ Params: { id: string } }>("/v1/negotiations/:id", async (req, reply) => {
+    if (!isUuid(req.params.id)) return sendProblem(reply, 404, "not_found");
     const negotiation = await store.getNegotiation(req.params.id);
     if (!negotiation) return sendProblem(reply, 404, "not_found");
     return negotiation;
@@ -94,100 +83,77 @@ export async function registerRoutes(app: FastifyInstance, deps: RouteDeps): Pro
   // SSE: backfill from the event log, then stream live events from Redis.
   app.get<{ Params: { id: string }; Querystring: { after?: string } }>(
     "/v1/negotiations/:id/events",
+    { exposeHeadRoute: false },
     async (req, reply) => {
       const id = req.params.id;
-      const negotiation = await store.getNegotiation(id);
-      if (!negotiation) return sendProblem(reply, 404, "not_found");
-
-      const after = req.query.after !== undefined ? Number(req.query.after) : -1;
-      let lastSeq = Number.isFinite(after) ? after : -1;
-      const client = redis.duplicate();
-      await client.subscribe(eventChannel(id));
-
-      reply.hijack();
-      reply.raw.writeHead(200, {
-        "content-type": "text/event-stream",
-        "cache-control": "no-cache, no-transform",
-        connection: "keep-alive",
-        "x-accel-buffering": "no",
-      });
-      reply.raw.write(`retry: 3000\n\n`);
-
-      const write = (event: NegotiationEvent) => {
-        if (event.seq <= lastSeq) return;
-        lastSeq = event.seq;
-        reply.raw.write(`id: ${event.seq}\ndata: ${JSON.stringify(event)}\n\n`);
-      };
-
-      const backfill = await store.listEvents(id, after);
-      for (const event of backfill) write(event);
-
-      const onMessage = (_channel: string, message: string) => {
-        try {
-          write(JSON.parse(message) as NegotiationEvent);
-        } catch {
-          /* ignore malformed */
-        }
-      };
-      client.on("message", onMessage);
-
-      const heartbeat = setInterval(() => reply.raw.write(`: heartbeat\n\n`), SSE_HEARTBEAT_MS);
-
-      const cleanup = () => {
-        clearInterval(heartbeat);
-        client.off("message", onMessage);
-        void client.quit().catch(() => {});
-      };
-      req.raw.on("close", cleanup);
-      req.raw.on("error", cleanup);
+      if (!isUuid(id) || !(await store.getNegotiation(id))) {
+        return sendProblem(reply, 404, "not_found");
+      }
+      const [afterSeq] = resumeSeqs(req, 1);
+      await streamNegotiations(
+        req,
+        reply,
+        { redis, store },
+        [{ negotiationId: id, afterSeq: afterSeq! }],
+        (s) => String(s[0]),
+      );
     },
   );
 
   app.get<{ Params: { id: string } }>("/v1/negotiations/:id/proof", async (req, reply) => {
-    const proof = await revealProof(store, req.params.id, emit);
-    if (!proof) return sendProblem(reply, 409, "no_deal_to_prove");
+    if (!isUuid(req.params.id)) return sendProblem(reply, 404, "not_found");
+    const proof = await revealProof(store, req.params.id, container.publish);
+    if (!proof) {
+      return sendProblem(reply, 409, "not_settled", "The proof is revealed once the deal is paid.");
+    }
     return proof;
   });
 
   /* -------------------------------- payments ------------------------------- */
 
   app.post<{ Params: { id: string } }>("/v1/negotiations/:id/checkout", async (req, reply) => {
+    if (!isUuid(req.params.id)) return sendProblem(reply, 404, "not_found");
     const n = await store.getNegotiation(req.params.id);
     if (!n) return sendProblem(reply, 404, "not_found");
+    if (n.basketId)
+      return sendProblem(reply, 409, "basket_line", "Check out the whole basket instead.");
     if (n.agreedPriceCents === null) return sendProblem(reply, 409, "no_agreement");
-    CheckoutInputSchema.safeParse(req.body ?? {});
 
     const existing = await store.getPaymentByNegotiation(n.id);
     if (existing) {
       return {
         negotiationId: n.id,
         paypalOrderId: existing.paypalOrderId,
-        approveUrl: null,
+        approveUrl: existing.approveUrl,
         amountCents: existing.amountCents,
         currency: existing.currency,
       };
     }
 
-    const order = await checkout.createCheckout({
-      negotiationId: n.id,
-      amountCents: n.agreedPriceCents,
-      currency: n.currency,
-    });
+    let order: { orderId: string; approveUrl: string | null };
+    try {
+      order = await checkout.createCheckout({
+        referenceId: n.id,
+        amountCents: n.agreedPriceCents,
+        currency: n.currency,
+      });
+    } catch (err) {
+      return sendKnownError(reply, err);
+    }
     await store.createPayment({
       negotiationId: n.id,
       paypalOrderId: order.orderId,
+      approveUrl: order.approveUrl,
       amountCents: n.agreedPriceCents,
       currency: n.currency,
     });
     await store.setPayment(n.id, order.orderId);
-    await store.transition(n.id, "agreed", "payment_pending");
-    await emit(
-      store.makeEvent(n.id, await store.nextSeq(n.id), {
-        t: "payment.status",
-        status: "order_created",
-        paypalOrderId: order.orderId,
-      }),
+    const event = await store.appendSystemEvent(
+      n.id,
+      { t: "payment.status", status: "order_created", paypalOrderId: order.orderId },
+      { transition: { from: ["agreed"], to: "payment_pending", required: true } },
     );
+    if (event) await container.publish(event);
     return reply.code(201).send({
       negotiationId: n.id,
       paypalOrderId: order.orderId,
@@ -198,77 +164,87 @@ export async function registerRoutes(app: FastifyInstance, deps: RouteDeps): Pro
   });
 
   app.post<{ Params: { id: string } }>("/v1/negotiations/:id/capture", async (req, reply) => {
+    if (!isUuid(req.params.id)) return sendProblem(reply, 404, "not_found");
     const n = await store.getNegotiation(req.params.id);
     if (!n) return sendProblem(reply, 404, "not_found");
     const payment = await store.getPaymentByNegotiation(n.id);
     if (!payment) return sendProblem(reply, 409, "no_checkout");
-    if (payment.status === "captured") {
-      return { negotiationId: n.id, captureId: payment.paypalCaptureId, status: "captured" };
+    if (payment.status === "failed" || payment.status === "refunded") {
+      return sendProblem(reply, 409, `payment_${payment.status}`);
     }
 
-    const result = await checkout.capture(n.id, payment.paypalOrderId);
-    await store.updatePaymentStatus(payment.paypalOrderId, "captured", result.captureId);
-    await store.setPayment(n.id, payment.paypalOrderId, result.captureId);
-    await store.transition(n.id, "payment_pending", "paid");
-    await emit(
-      store.makeEvent(n.id, await store.nextSeq(n.id), {
-        t: "payment.status",
+    if (payment.status === "captured") {
+      const [proof] = await settleCapture(container, payment, payment.paypalCaptureId);
+      return {
+        negotiationId: n.id,
+        captureId: payment.paypalCaptureId,
         status: "captured",
-        paypalOrderId: payment.paypalOrderId,
-        paypalCaptureId: result.captureId,
-      }),
-    );
-    const proof = await revealProof(store, n.id, emit);
-    await store.transition(n.id, "paid", "revealed");
-    return { negotiationId: n.id, captureId: result.captureId, status: "captured", proof };
+        proof: proof ?? null,
+      };
+    }
+    let capture: { captureId: string; status: string };
+    try {
+      capture = await checkout.capture(n.id, payment.paypalOrderId);
+    } catch (err) {
+      return sendKnownError(reply, err);
+    }
+    const result = await applyCapture(container, payment, capture);
+    if (result.outcome === "failed") return sendProblem(reply, 409, "payment_failed");
+    return reply.code(result.outcome === "pending" ? 202 : 200).send({
+      negotiationId: n.id,
+      captureId: capture.captureId,
+      status: result.outcome,
+      proof: result.proofs[0] ?? null,
+    });
   });
 
   /* -------------------------------- webhook -------------------------------- */
 
   app.post("/v1/webhooks/paypal", async (req, reply) => {
-    const rawBody = (req.raw as { rawBody?: string }).rawBody ?? JSON.stringify(req.body ?? {});
+    const rawBody = (req as { rawBody?: string }).rawBody ?? JSON.stringify(req.body ?? {});
+    // Without a configured listener id only simulator events (signed with WEBHOOK_ID) can verify.
     const verified = await verifyWebhookSignature({
       headers: req.headers as Record<string, string | string[] | undefined>,
       rawBody,
-      webhookId: env.PAYPAL_WEBHOOK_ID || "WEBHOOK_ID",
+      webhookId: env.PAYPAL_WEBHOOK_ID || SIMULATOR_WEBHOOK_ID,
       env: env.PAYPAL_ENV,
     });
     if (!verified) return sendProblem(reply, 401, "invalid_webhook_signature");
 
-    const body = req.body as {
-      id?: string;
-      event_type?: string;
-      resource?: { id?: string; supplementary_data?: { related_ids?: { order_id?: string } } };
-    };
-    const eventId = body.id ?? randomUUID();
+    const body = (req.body ?? {}) as PayPalWebhookBody;
+    if (!body.id) return sendProblem(reply, 400, "missing_event_id");
     const isNew = await store.recordWebhook(
-      eventId,
+      body.id,
       body.event_type ?? "unknown",
       body as Record<string, unknown>,
     );
     if (!isNew) return reply.code(200).send({ ok: true, duplicate: true });
 
-    const orderId =
-      body.resource?.supplementary_data?.related_ids?.order_id ??
-      (body.resource?.id?.startsWith("MOCK") ? body.resource.id : undefined);
-
-    if (body.event_type === "PAYMENT.CAPTURE.COMPLETED" && orderId) {
-      const payment = await store.getPaymentByOrder(orderId);
-      if (payment && payment.status !== "captured") {
-        await store.updatePaymentStatus(orderId, "captured", body.resource?.id);
-        await store.setPayment(payment.negotiationId, orderId, body.resource?.id);
-        await store.transition(payment.negotiationId, "payment_pending", "paid");
-        await emit(
-          store.makeEvent(payment.negotiationId, await store.nextSeq(payment.negotiationId), {
-            t: "payment.status",
-            status: "captured",
-            paypalOrderId: orderId,
-            ...(body.resource?.id ? { paypalCaptureId: body.resource.id } : {}),
-          }),
-        );
-        await revealProof(store, payment.negotiationId, emit);
-        await store.transition(payment.negotiationId, "paid", "revealed");
+    try {
+      const type = body.event_type;
+      const orderId =
+        type === "CHECKOUT.ORDER.APPROVED"
+          ? body.resource?.id
+          : body.resource?.supplementary_data?.related_ids?.order_id;
+      const payment = orderId ? await store.getPaymentByOrder(orderId) : null;
+      // The event only says WHICH order to look at. What happened is asked of PayPal
+      // (an idempotent capture answers with the capture's real status), so a forged
+      // or replayed body can't settle anything: with no real PayPal there is nothing to do.
+      if (payment && checkout.captures) {
+        if (
+          type === "CHECKOUT.ORDER.APPROVED" ||
+          type === "PAYMENT.CAPTURE.COMPLETED" ||
+          type === "PAYMENT.CAPTURE.DENIED"
+        ) {
+          await approveAndCapture(container, payment).catch((err: unknown) => {
+            if (!(err instanceof PayPalApiError)) throw err; // e.g. not approved yet: nothing to settle
+          });
+        } else if (type === "PAYMENT.CAPTURE.REFUNDED") await refundPayment(container, payment);
       }
+    } catch (err) {
+      // Let PayPal's retry be processed instead of being dropped as a duplicate.
+      await store.forgetWebhook(body.id);
+      throw err;
     }
     return reply.code(200).send({ ok: true });
   });
@@ -278,8 +254,9 @@ export async function registerRoutes(app: FastifyInstance, deps: RouteDeps): Pro
   app.get<{ Querystring: { query?: string; currency?: string } }>(
     "/v1/market/comps",
     async (req, reply) => {
-      const query = req.query.query ?? "water bottle";
+      const query = (req.query.query ?? "water bottle").slice(0, 200);
       const currency = (req.query.currency ?? "USD").toUpperCase();
+      if (!/^[A-Z]{3}$/.test(currency)) return sendProblem(reply, 400, "invalid_currency");
       return market.getComps(query, currency);
     },
   );
