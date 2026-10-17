@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { navigate } from 'astro:transitions/client';
 import { useVenue, splitNearby } from '@/stores/venue';
 import { useLiveShops } from '@/stores/inventory';
+import { useRealShops } from '@/stores/realShops';
 import { useYou, distancesFrom, ENTER_RADIUS_M } from '@/stores/you';
 import { haversineM, BAZAAR_CENTER, type GeoPoint } from '@/lib/mock/discovery';
 import { useI18n } from '@/stores/prefs';
@@ -36,6 +37,14 @@ export default function ShopDiscovery() {
   const [picking, setPicking] = useState(false);
   const [satellite, setSatellite] = useState(false);
   const quiet = dismissedAt !== null && haversineM(point, dismissedAt) < 50;
+  const fetchNearby = useRealShops((s) => s.fetchNearby);
+
+  // real backend shops near the buyer, additive to the seeded demo ones (fails
+  // silently if the backend is unreachable — useLiveShops() just keeps the
+  // seeded list in that case)
+  useEffect(() => {
+    void fetchNearby(point);
+  }, [point, fetchNearby]);
 
   // live GPS when the browser allows it; a timeout ends "locating" either way
   useEffect(() => {
@@ -68,7 +77,7 @@ export default function ShopDiscovery() {
     };
   }, [watchKey, setGps]);
 
-  const dists = useMemo(() => distancesFrom(point), [point]);
+  const dists = useMemo(() => distancesFrom(point, shops), [point, shops]);
   const { open: sorted, closed } = useMemo(() => splitNearby(shops, stalls, dists), [shops, stalls, dists]);
 
   // every open shop you're standing next to, nearest first — not just one

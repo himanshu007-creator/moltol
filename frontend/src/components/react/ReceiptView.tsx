@@ -107,7 +107,7 @@ function Receipt({ order }: { order: Order }) {
               <span className={cn(mono, 'font-semibold text-ink')}>{formatMoney(order.savingsCents)}</span>
             </div>
             <p className="mt-2 text-xs text-ink-faint">
-              Against the {formatMoney(order.marketCents)} sticker price.
+              Against the {formatMoney(order.listCents ?? order.marketCents)} sticker price.
             </p>
           </div>
         </div>

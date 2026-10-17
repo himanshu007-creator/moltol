@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { navigate } from 'astro:transitions/client';
-import { useCart } from '@/stores/cart';
+import { useCart, type CartLine } from '@/stores/cart';
 import { useBazaar } from '@/stores/bazaar';
 import { useLiveShops } from '@/stores/inventory';
+import { useRealShopProducts, useDirectShopFallback } from '@/stores/realShops';
 import { useBuyer } from '@/stores/buyer';
 import { formatMoney } from '@/lib/money';
 import { requestFor, PRESETS, type PresetId } from '@/lib/personality';
@@ -22,7 +23,15 @@ export default function CartSheet() {
   const savedPersonality = useBuyer((s) => s.personality);
   const [preset, setPreset] = useState<PresetId>(savedPersonality);
   const shops = useLiveShops();
-  const shop = shops.find((s) => s.id === cart.shopId) ?? shops[0]!;
+  const listShop = shops.find((s) => s.id === cart.shopId);
+  // Same gap as StallGrid: a real shop's nearby-fetch is in-memory only, so a
+  // fresh page load that lands straight on the cart (no discovery visit yet
+  // this session) needs its own fetch — never silently fall back to an
+  // unrelated seeded shop and haggle against the wrong catalogue.
+  const directShop = useDirectShopFallback(cart.shopId ?? '', Boolean(listShop));
+  const baseShop = listShop ?? directShop ?? shops[0]!;
+  const realProducts = useRealShopProducts(listShop); // directShop already carries its own products
+  const shop = realProducts ? { ...baseShop, products: realProducts } : baseShop;
 
   // scope: which lines the agents haggle. Starts as "all"; new lines join it.
   const [picked, setPicked] = useState<string[]>(() => cart.lines.map((l) => l.sku));
@@ -41,7 +50,7 @@ export default function CartSheet() {
   const maxPotential = useMemo(
     () =>
       included.reduce((s2, l) => {
-        const m = compsOf(itemOf(l.sku, shop));
+        const m = compsOf(itemOf(l, shop));
         return s2 + Math.max(0, Math.round((l.listCents - m.p25Cents) * l.qty));
       }, 0),
     [included, shop],
@@ -50,9 +59,7 @@ export default function CartSheet() {
 
   const startHaggle = () => {
     if (!included.length) return;
-    const lines = included
-      .map((l) => ({ ...l, item: shop.products.find((p) => p.sku === l.sku) }))
-      .filter((x): x is typeof x & { item: InventoryItem } => !!x.item);
+    const lines = included.map((l) => ({ ...l, item: itemOf(l, shop) }));
     const request = requestFor(preset);
     bazaar.start(shop, lines, { scope, style: request.tone, budgetCents: null, request });
     // Soft nav (not location.href): a hard reload can outrun the async IndexedDB
@@ -86,7 +93,7 @@ export default function CartSheet() {
 
       <ul className="grid gap-3" aria-label="Basket items">
         {cart.lines.map((l) => {
-          const item = itemOf(l.sku, shop);
+          const item = itemOf(l, shop);
           const m = compsOf(item);
           const saved = Math.max(0, l.listCents - m.medianCents);
           const isIn = picked.includes(l.sku);
@@ -166,8 +173,26 @@ export default function CartSheet() {
   );
 }
 
-function itemOf(sku: string, shop: { products: InventoryItem[] }): InventoryItem {
-  return shop.products.find((p) => p.sku === sku) ?? shop.products[0]!;
+/**
+ * The shop's own product listing, by sku — falls back to a minimal item
+ * synthesized from the cart line itself (never crashes) for the brief
+ * window where a real shop's products are still loading
+ * (`useRealShopProducts` resolves async) or any other sku it can't find.
+ */
+function itemOf(line: CartLine, shop: { products: InventoryItem[] }): InventoryItem {
+  return (
+    shop.products.find((p) => p.sku === line.sku) ?? {
+      sku: line.sku,
+      itemId: 'tomato',
+      title: line.title,
+      emoji: line.emoji,
+      unit: line.unit,
+      listCents: line.listCents,
+      floorCents: line.listCents,
+      stock: line.stock,
+      market: { median: line.listCents, p25: Math.round(line.listCents * 0.9), p75: Math.round(line.listCents * 1.1) },
+    }
+  );
 }
 
 function StepBtn({ label, onClick }: { label: string; onClick: () => void }) {

@@ -3,11 +3,12 @@ import { useCart } from '@/stores/cart';
 import { useSession } from '@/stores/session';
 import { useVenue, isOpen } from '@/stores/venue';
 import { useLiveShops } from '@/stores/inventory';
+import { useRealShopProducts, useDirectShopFallback } from '@/stores/realShops';
 import { formatMoney } from '@/lib/money';
 import { compsOf } from '@/lib/mock/market';
 import { roundQty, stepForLabel, UNITS } from '@/lib/units';
 import { cn } from '@/lib/cn';
-import type { InventoryItem } from '@/lib/mock/seeds';
+import type { InventoryItem, Shop } from '@/lib/mock/seeds';
 
 /** One stall: products as price cards, closed state, bundle deal, and a sticky basket bar. */
 export default function StallGrid({ id }: { id?: string }) {
@@ -15,7 +16,11 @@ export default function StallGrid({ id }: { id?: string }) {
   const [stallId] = useState(() => id || (typeof location === 'undefined' ? '' : new URLSearchParams(location.search).get('id') ?? ''));
   const [q, setQ] = useState('');
   const shops = useLiveShops();
-  const shop = shops.find((s) => s.id === stallId);
+  const listShop = shops.find((s) => s.id === stallId);
+  const directShop = useDirectShopFallback(stallId, Boolean(listShop));
+  const baseShop = listShop ?? directShop;
+  const realProducts = useRealShopProducts(listShop); // directShop already carries its own products
+  const shop: Shop | undefined = baseShop && realProducts ? { ...baseShop, products: realProducts } : baseShop;
   const open = useVenue((s) => (shop ? isOpen(s.stalls, shop.id) : false));
   const cart = useCart();
   const session = useSession();

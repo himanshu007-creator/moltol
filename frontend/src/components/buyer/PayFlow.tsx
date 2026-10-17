@@ -2,9 +2,10 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { navigate } from 'astro:transitions/client';
 import { selectBazaar, useBazaar } from '@/stores/bazaar';
-import { useOrders, TRACKER_STEPS } from '@/stores/orders';
+import { useOrders, fromBackendOrder, TRACKER_STEPS } from '@/stores/orders';
 import { useCart } from '@/stores/cart';
 import { useSession } from '@/stores/session';
+import { checkoutBasket, captureBasket, getOrder, BackendAuthError } from '@/lib/backend';
 import { formatMoney } from '@/lib/money';
 import { roundQty } from '@/lib/units';
 import { cn } from '@/lib/cn';
@@ -29,6 +30,10 @@ export default function PayFlow() {
   const [rating, setRating] = useState<number>(0);
   const [orderId, setOrderId] = useState<string | null>(null);
   const [showSavedBalloon, setShowSavedBalloon] = useState(false);
+  // Real-basket checkout state — unused on the local mock path.
+  const [realStep, setRealStep] = useState<'order_created' | 'approved' | 'captured' | null>(null);
+  const [approveUrl, setApproveUrl] = useState<string | null>(null);
+  const [payError, setPayError] = useState<string | null>(null);
 
   const agreed = sum.lanes.filter((l) => !l.noDeal && l.agreedCents != null);
   const order = orderId ? orders.orders.find((o) => o.id === orderId) : undefined;
@@ -48,8 +53,50 @@ export default function PayFlow() {
     };
   }, [stage]);
 
-  const pay = () => {
+  /** After PayPal approval (or immediately, for the mock gateway's null approveUrl). */
+  const finishCapture = async (token: string, basketId: string) => {
+    try {
+      await captureBasket(token, basketId);
+      setRealStep('captured');
+      const real = await getOrder(token, basketId);
+      orders.upsert(fromBackendOrder(real));
+      setStage('proof');
+    } catch (e) {
+      setPayError(e instanceof BackendAuthError ? e.detail || e.title : 'Payment failed. Try again.');
+      setStage('ready');
+    }
+  };
+
+  const pay = async () => {
+    setPayError(null);
     setStage('paying');
+
+    if (bz.basketId) {
+      const token = useSession.getState().token;
+      if (!token) {
+        setPayError('Your session expired. Log in again.');
+        setStage('ready');
+        return;
+      }
+      setOrderId(bz.basketId);
+      setRealStep('order_created');
+      try {
+        const checkout = await checkoutBasket(token, bz.basketId);
+        setRealStep('approved');
+        if (checkout.approveUrl) {
+          setApproveUrl(checkout.approveUrl);
+          window.open(checkout.approveUrl, '_blank', 'noopener');
+          return; // wait for "I've approved it" below
+        }
+        await finishCapture(token, bz.basketId);
+      } catch (e) {
+        setPayError(e instanceof BackendAuthError ? e.detail || e.title : 'Checkout failed. Try again.');
+        setStage('ready');
+      }
+      return;
+    }
+
+    // Local mock path: a sandbox PayPal-style sheet, order_created → approved → captured.
     const id = 'order-' + Date.now().toString(36);
     setOrderId(id);
     orders.create({
@@ -70,7 +117,6 @@ export default function PayFlow() {
       savingsCents: sum.totalSavedCents,
       fairness: Math.round(sum.fairness),
     });
-    // payment state machine: order_created → approved → captured(+proof)
     setTimeout(() => orders.setPaymentStatus(id, 'approved'), 600);
     setTimeout(() => {
       orders.setPaymentStatus(id, 'captured');
@@ -101,7 +147,7 @@ export default function PayFlow() {
   }
 
   if (stage === 'paying') {
-    const paid = order?.paymentStatus;
+    const paid = bz.basketId ? realStep : order?.paymentStatus;
     const steps = [
       { label: 'Order created', done: true },
       { label: 'Approved · sealed prices locked', done: paid === 'approved' || paid === 'captured' },
@@ -111,7 +157,7 @@ export default function PayFlow() {
       <div className="grid min-h-[60dvh] place-items-center py-8">
         <div className="grid w-full max-w-sm gap-5 rounded-3xl bg-ink p-6 shadow-2xl">
           <div className="flex items-center justify-between">
-            <span className="pill !bg-paper/15 !text-paper">Sandbox demo</span>
+            <span className="pill !bg-paper/15 !text-paper">{bz.basketId ? 'PayPal sandbox' : 'Sandbox demo'}</span>
             <span className="t-num text-xs text-paper/60">{orderId}</span>
           </div>
           <div>
@@ -128,8 +174,28 @@ export default function PayFlow() {
               </li>
             ))}
           </ol>
+          {approveUrl && paid !== 'captured' && (
+            <div className="grid gap-2">
+              <p className="text-xs text-paper/70">
+                Approve the order in the PayPal tab that just opened, then come back here.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  const token = useSession.getState().token;
+                  if (token && bz.basketId) void finishCapture(token, bz.basketId);
+                }}
+                className="btn btn-primary !min-h-11"
+              >
+                I've approved it on PayPal
+              </button>
+            </div>
+          )}
+          {payError && <p role="alert" className="text-sm font-medium text-chili">{payError}</p>}
           <p className="text-xs text-paper/60">
-            Demo payment, no real money moves. The seller sees totals only after you share the receipt. {session.name}
+            {bz.basketId
+              ? `Sandbox PayPal — no real money moves. ${session.name}`
+              : `Demo payment, no real money moves. The seller sees totals only after you share the receipt. ${session.name}`}
           </p>
         </div>
       </div>
@@ -202,7 +268,7 @@ export default function PayFlow() {
             <dt className="text-ink-muted">Order</dt>
             <dd className="t-num text-right text-ink">{orderId}</dd>
             <dt className="text-ink-muted">Sticker price</dt>
-            <dd className="t-num text-right text-ink-muted line-through">{formatMoney(sum.totalMarketCents)}</dd>
+            <dd className="t-num text-right text-ink-muted line-through">{formatMoney(sum.totalListCents)}</dd>
             <dt className="font-semibold text-ink">You paid</dt>
             <dd className="t-num text-right text-lg font-semibold text-ink">{formatMoney(sum.totalAgreedCents)}</dd>
           </dl>
@@ -302,7 +368,7 @@ export default function PayFlow() {
         <div className="grid gap-1 border-t border-chalk pt-4 text-sm">
           <div className="flex justify-between text-ink-muted">
             <span>Sticker price</span>
-            <span className="t-num line-through">{formatMoney(sum.totalMarketCents)}</span>
+            <span className="t-num line-through">{formatMoney(sum.totalListCents)}</span>
           </div>
           <div className="flex items-end justify-between">
             <span className="text-base font-semibold text-ink">You pay</span>
@@ -323,7 +389,7 @@ export default function PayFlow() {
             <p className="text-xs font-semibold uppercase tracking-widest text-paper/60">You pay</p>
             <p className="t-num text-xl font-semibold text-paper">{formatMoney(sum.totalAgreedCents)}</p>
           </div>
-          <button type="button" onClick={pay} className="btn btn-primary !min-h-12">Pay now</button>
+          <button type="button" onClick={() => void pay()} className="btn btn-primary !min-h-12">Pay now</button>
         </div>
       </div>
     </div>
