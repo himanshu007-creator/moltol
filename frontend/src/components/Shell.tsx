@@ -5,11 +5,12 @@ import { motion, AnimatePresence } from 'motion/react';
 import { MapPin, ShoppingBasket, PackageCheck, Sparkles, Store, PackageOpen, Handshake, LineChart, Settings, LogOut, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { startVenueClock, useVenue } from '@/stores/venue';
+import { startVenueClock, startShopStatusStream, useVenue } from '@/stores/venue';
 import { startMoneyEvents } from '@/lib/moneyEvents';
 import VendorStatusToggle from '@/components/react/VendorStatusToggle';
 import MoneySplash from '@/components/react/MoneySplash';
 import { useSession, type Role } from '@/stores/session';
+import { logout as backendLogout, setRole as backendSetRole, getMe } from '@/lib/backend';
 import { ROUTES } from '@/lib/routes';
 import { useUi } from '@/stores/ui';
 import { useBazaar } from '@/stores/bazaar';
@@ -66,10 +67,28 @@ export default function Shell() {
   useEffect(() => {
     setSlot(document.getElementById('account-slot'));
     startVenueClock();
+    startShopStatusStream();
     startMoneyEvents();
     const onPage = () => setPath(location.pathname);
     document.addEventListener('astro:page-load', onPage);
     return () => document.removeEventListener('astro:page-load', onPage);
+  }, []);
+
+  // Hydrate from the backend's own view once per load (covers logging in on a
+  // new device, where local state has never seen this account before).
+  // Additive only — never forces a navigation or overrides a local choice.
+  useEffect(() => {
+    const token = useSession.getState().token;
+    if (!token) return;
+    void getMe(token)
+      .then((me) => {
+        if (me.hasShop) markProfile('seller');
+        if (me.hagglePreset !== useBuyer.getState().personality) {
+          useBuyer.setState({ personality: me.hagglePreset });
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -100,6 +119,9 @@ export default function Shell() {
   function switchRole(role: Role) {
     if (role === activeRole) return;
     setMenuOpen(false);
+    // View preference only — never changes what the token may do server-side.
+    const token = useSession.getState().token;
+    if (token) void backendSetRole(token, role).catch(() => {});
     if (role === 'buyer') {
       setRole('buyer', ROUTES.buy);
       void navigate(ROUTES.buy);
@@ -223,6 +245,10 @@ export default function Shell() {
                 useInventory.getState().resetDemo();
                 useLedger.getState().reset();
                 useBuyer.getState().reset();
+                // Fire-and-forget: revoke the backend session, but don't make
+                // the person wait on the network to leave the app.
+                const token = useSession.getState().token;
+                if (token) void backendLogout(token).catch(() => {});
                 logout();
                 void navigate('/login');
               }}

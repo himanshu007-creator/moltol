@@ -60,6 +60,7 @@ const tacticLabels: Record<Tactic, string> = {
   loyalty: 'loyalty',
   'market-cite': 'market cite',
   'final-offer': 'final offer',
+  plain: '',
 };
 
 export function tacticLabel(tactic: Tactic): string {

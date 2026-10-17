@@ -9,13 +9,13 @@ import type { Market } from '@/lib/events';
 
 export function comps(itemId: ItemLib): Market {
   const m = COMP_LIB[itemId];
-  return { medianCents: m.median, p25Cents: m.p25, p75Cents: m.p75 };
+  return { medianCents: m.median, p25Cents: m.p25, p75Cents: m.p75, sampleCount: 0, source: 'seed' };
 }
 
 /** Market band for a concrete item: its own band if it has one, else the library. */
 export function compsOf(item: InventoryItem): Market {
   const m = item.market ?? COMP_LIB[item.itemId];
-  return { medianCents: m.median, p25Cents: m.p25, p75Cents: m.p75 };
+  return { medianCents: m.median, p25Cents: m.p25, p75Cents: m.p75, sampleCount: 0, source: 'seed' };
 }
 
 export interface CompsSample {

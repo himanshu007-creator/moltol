@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useOrders, TRACKER_STEPS, type PaymentStatus } from '@/stores/orders';
+import { useOrders, fromBackendOrder, TRACKER_STEPS, type PaymentStatus } from '@/stores/orders';
+import { useSession } from '@/stores/session';
+import { listOrders } from '@/lib/backend';
 import { formatMoney } from '@/lib/money';
 import { cn } from '@/lib/cn';
 
@@ -8,11 +10,13 @@ const PAYMENT: Record<PaymentStatus, { label: string; cls: string }> = {
   approved: { label: 'Approved', cls: 'pill pill-marigold' },
   captured: { label: 'Paid', cls: 'pill pill-teal' },
   failed: { label: 'Failed', cls: 'pill pill-chili' },
+  refunded: { label: 'Refunded', cls: 'pill pill-chili' },
 };
 
 /** Orders as tickets: total, payment state, the three-step tracker and the collect code. */
 export default function Orders() {
   const orders = useOrders();
+  const token = useSession((s) => s.token);
   const [go, setGo] = useState(false);
 
   useEffect(() => {
@@ -24,6 +28,15 @@ export default function Orders() {
     const t = setTimeout(() => setGo(true), 150);
     return () => clearTimeout(t);
   }, []);
+
+  // Real backend orders, additive to the local-only demo ones — fails silently
+  // if the backend is unreachable, same fail-soft pattern used throughout.
+  useEffect(() => {
+    if (!token) return;
+    listOrders(token)
+      .then((real) => real.forEach((o) => useOrders.getState().upsert(fromBackendOrder(o))))
+      .catch(() => {});
+  }, [token]);
 
   if (!orders.orders.length) {
     return (

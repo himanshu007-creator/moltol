@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { BAZAAR_CENTER, haversineM, type GeoPoint } from '@/lib/mock/discovery';
-import { SHOPS } from '@/lib/mock/seeds';
+import { SHOPS, type Shop } from '@/lib/mock/seeds';
 
 /**
  * Where the buyer is. One source for the map, the distance list and the
@@ -35,9 +35,9 @@ export const useYou = create<YouState>()((set) => ({
   },
 }));
 
-/** Metres from a point to every seeded shop. */
-export function distancesFrom(point: GeoPoint): Record<string, number> {
+/** Metres from a point to every shop in the list (seeded, real, or both — defaults to seeded only). */
+export function distancesFrom(point: GeoPoint, shops: Shop[] = SHOPS): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const s of SHOPS) out[s.id] = Math.round(haversineM(point, { lat: s.lat, lng: s.lng }));
+  for (const s of shops) out[s.id] = Math.round(haversineM(point, { lat: s.lat, lng: s.lng }));
   return out;
 }
