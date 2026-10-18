@@ -37,6 +37,16 @@ const EnvSchema = z.object({
   LLM_MODEL: z.string().default(""),
 
   CHANNEL3_API_KEY: z.string().default(""),
+  SERPAPI_API_KEY: z.string().default(""),
+
+  /** The currency PayPal is charged in; shops still price in DEFAULT_CURRENCY. */
+  PAYPAL_SETTLEMENT_CURRENCY: z
+    .string()
+    .length(3)
+    .transform((c) => c.toUpperCase())
+    .default("USD"),
+  /** INR → USD (minor units are 1:1 while both have 2 decimals). ~₹83.33 = $1. */
+  FX_USD_PER_INR: z.coerce.number().positive().default(0.012),
 
   SMTP_HOST: z.string().default("smtp-relay.brevo.com"),
   SMTP_PORT: z.coerce.number().int().positive().default(587),

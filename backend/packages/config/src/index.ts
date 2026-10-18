@@ -11,6 +11,11 @@ export function eventChannel(negotiationId: string): string {
 /** Redis pub/sub channel carrying `shop.status` frames to every stall-map client. */
 export const SHOP_STATUS_CHANNEL = "moltol:shop-status";
 
+/** Redis pub/sub channel carrying a single shop's private deal feed to its owner. */
+export function dealChannel(shopId: string): string {
+  return `moltol:deals:${shopId}`;
+}
+
 /** Pause between agent turns so a haggle streams at a watchable pace (and can be taken over). */
 export const DEFAULT_TURN_DELAY_MS = 900;
 
@@ -25,6 +30,9 @@ export const PRICE_ROUNDING_CENTS = 100;
 
 /** How long a negotiation may sit without progress before the sweeper fails it. */
 export const NEGOTIATION_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** How long a checkout's stock hold survives before the sweeper releases it. */
+export const RESERVATION_TTL_MS = 15 * 60 * 1000;
 
 /** Additional authenticated data binding sealed limits to their negotiation. */
 export function sealAad(negotiationId: string, side: string): string {

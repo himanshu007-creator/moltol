@@ -68,6 +68,8 @@ export async function settleCapture(
       fresh.basketId,
       lines.map((l) => ({ shopItemId: l.shopItemId!, qty: l.qty ?? 1 })),
     );
+    // Stock is now sold; the hold has done its job.
+    await c.store.releaseReservations(fresh.basketId);
   } else if (fresh.negotiationId) {
     await c.store.setPayment(fresh.negotiationId, fresh.paypalOrderId, capture ?? undefined);
   }
@@ -138,8 +140,10 @@ export async function failPayment(c: Container, payment: PaymentRow): Promise<vo
     );
     if (event) await c.publish(event);
   }
-  if (payment.basketId)
+  if (payment.basketId) {
     await c.store.transitionBasket(payment.basketId, ["payment_pending"], "failed");
+    await c.store.releaseReservations(payment.basketId);
+  }
 }
 
 /** PAYMENT.CAPTURE.REFUNDED: the deal and its proof stand; the payment is marked refunded. */

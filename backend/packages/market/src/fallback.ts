@@ -20,9 +20,9 @@ function round(cents: number): number {
  *
  * With a `referenceCents` (a shop's list price) the spread is centred near that
  * price — median 90–104% of it — so a ₹40 tomato isn't benchmarked against a
- * generic $18–$40 band. Without one, the original $18–$40 band.
+ * generic ₹18–₹40 band. Without one, the original 1800–4000 band (₹18–₹40).
  */
-export function seededComps(query: string, currency = "USD", referenceCents?: number): MarketRange {
+export function seededComps(query: string, currency = "INR", referenceCents?: number): MarketRange {
   const h = hash(`${currency}:${query.toLowerCase().trim()}`);
   const median =
     referenceCents && referenceCents > 0

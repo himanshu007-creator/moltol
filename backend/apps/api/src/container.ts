@@ -1,5 +1,10 @@
-import { eventChannel } from "@moltol/config";
-import type { NegotiationEvent } from "@moltol/contracts";
+import { dealChannel, eventChannel } from "@moltol/config";
+import {
+  dealClosedFromEvent,
+  settleAmount,
+  type NegotiationEvent,
+  type Settlement,
+} from "@moltol/contracts";
 import type { EngineDeps, TurnGenerator } from "@moltol/engine";
 import { createTurnGenerator } from "@moltol/llm";
 import { createMarketProvider } from "@moltol/market";
@@ -31,6 +36,12 @@ export interface Container {
   market: ReturnType<typeof createMarketProvider>;
   llm: TurnGenerator;
   checkout: CheckoutGateway;
+  /**
+   * Quote the gateway charge for a deal amount: convert a shop-currency total
+   * (INR) into the gateway's currency (USD) at the configured rate. Same currency
+   * returns it unchanged.
+   */
+  settle: (amountCents: number, currency: string) => Settlement;
   /** Fan an event out to live SSE subscribers (after it was committed to the log). */
   publish: (event: NegotiationEvent) => Promise<void>;
   /** Engine dependencies for human-driven steps; events are published as they commit. */
@@ -93,6 +104,7 @@ export function createContainer(
     overrides.market ??
     createMarketProvider({
       channel3ApiKey: env.CHANNEL3_API_KEY || undefined,
+      serpapiApiKey: env.SERPAPI_API_KEY || undefined,
     });
   const llm =
     overrides.llm ??
@@ -102,8 +114,22 @@ export function createContainer(
       model: env.LLM_MODEL || undefined,
     });
   const checkout = overrides.checkout ?? (paypalConfigured(env) ? realGateway(env) : mockGateway());
+  const settlementOptions = {
+    settlementCurrency: env.PAYPAL_SETTLEMENT_CURRENCY,
+    rates: { INR_USD: env.FX_USD_PER_INR },
+  };
+  const settle = (amountCents: number, currency: string): Settlement =>
+    settleAmount(amountCents, currency, settlementOptions);
   const publish = async (event: NegotiationEvent): Promise<void> => {
     await redis.publish(eventChannel(event.negotiationId), JSON.stringify(event));
+    // Mirror a lane's close into its shop's private deal feed (seller alerting).
+    if (event.t === "deal.agreed" || event.t === "session.ended") {
+      const ctx = await store.lineContext(event.negotiationId);
+      if (ctx) {
+        const frame = dealClosedFromEvent(event, ctx.shopId, ctx.basketId, ctx.name, ctx.currency);
+        if (frame) await redis.publish(dealChannel(ctx.shopId), JSON.stringify(frame));
+      }
+    }
   };
   return {
     env,
@@ -112,6 +138,7 @@ export function createContainer(
     market,
     llm,
     checkout,
+    settle,
     publish,
     engine: () => ({ store, llm, market, onEvent: publish }),
     close: async () => {

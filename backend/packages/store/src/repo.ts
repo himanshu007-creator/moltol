@@ -12,7 +12,19 @@ import type {
   Turn,
 } from "@moltol/contracts";
 import { sealAad } from "@moltol/config";
-import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, sql as raw } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  sql as raw,
+} from "drizzle-orm";
 import type { Db, Sql } from "./client";
 import { decryptLimit, encryptLimit, parseSealKey } from "./seal";
 import {
@@ -22,6 +34,7 @@ import {
   otpCodes,
   payments,
   proofs,
+  reservations,
   sealedSecrets,
   shopItems,
   shops,
@@ -142,6 +155,8 @@ export interface NewBasketLine {
   openCents: number;
   /** The buyer's per-unit ceiling; also sealed in `sealed`. */
   maxCents: number;
+  /** The vendor's own floor per unit, snapshotted for the seller's ledger (seller-only). */
+  floorCents: number;
   sealed: SealedRecord[];
 }
 
@@ -404,6 +419,7 @@ export class MoltolStore {
           itemUnit: line.unit,
           qty: String(line.qty),
           openCents: line.openCents,
+          floorCents: line.floorCents,
           shopPersona: input.shopPersona,
         })),
       );
@@ -511,6 +527,120 @@ export class MoltolStore {
     });
   }
 
+  /* ------------------------------ reservations ----------------------------- */
+
+  /**
+   * Hold stock for a basket's closed lines at checkout. Rows are locked in one
+   * transaction, so two buyers cannot both claim the last unit; a shortage rolls
+   * the whole hold back. Idempotent: an existing hold for the basket succeeds.
+   */
+  async reserveStock(
+    basketId: string,
+    lines: { shopItemId: string; qty: number }[],
+  ): Promise<{ ok: true } | { ok: false; shortage: { shopItemId: string; available: number }[] }> {
+    return this.db.transaction(async (tx) => {
+      const held = await tx
+        .select({ id: reservations.id })
+        .from(reservations)
+        .where(and(eq(reservations.basketId, basketId), isNull(reservations.releasedAt)))
+        .limit(1);
+      if (held.length > 0) return { ok: true };
+
+      const shortage: { shopItemId: string; available: number }[] = [];
+      const toApply: { shopItemId: string; qty: number }[] = [];
+      for (const line of lines) {
+        const [item] = await tx
+          .select({ quantity: shopItems.quantity, reserved: shopItems.reservedQty })
+          .from(shopItems)
+          .where(eq(shopItems.id, line.shopItemId))
+          .for("update");
+        if (!item || item.quantity === null) continue; // stock not tracked, or item deleted
+        const available = Number(item.quantity) - Number(item.reserved);
+        if (available < line.qty) {
+          shortage.push({ shopItemId: line.shopItemId, available: Math.max(0, available) });
+          continue;
+        }
+        toApply.push(line);
+      }
+      if (shortage.length > 0) return { ok: false, shortage };
+
+      const now = new Date();
+      for (const line of toApply) {
+        await tx
+          .update(shopItems)
+          .set({
+            reservedQty: raw`${shopItems.reservedQty} + ${String(line.qty)}::numeric`,
+            updatedAt: now,
+          })
+          .where(eq(shopItems.id, line.shopItemId));
+        await tx
+          .insert(reservations)
+          .values({ basketId, shopItemId: line.shopItemId, qty: String(line.qty) });
+      }
+      return { ok: true };
+    });
+  }
+
+  /** Clear a basket's holds (paid, failed, or expired). Stock itself is untouched. */
+  async releaseReservations(basketId: string): Promise<number> {
+    return this.db.transaction(async (tx) => {
+      const held = await tx
+        .select()
+        .from(reservations)
+        .where(and(eq(reservations.basketId, basketId), isNull(reservations.releasedAt)));
+      if (held.length === 0) return 0;
+      const now = new Date();
+      for (const r of held) {
+        await tx
+          .update(shopItems)
+          .set({
+            reservedQty: raw`GREATEST(${shopItems.reservedQty} - ${String(r.qty)}::numeric, 0)`,
+            updatedAt: now,
+          })
+          .where(eq(shopItems.id, r.shopItemId));
+        await tx.update(reservations).set({ releasedAt: now }).where(eq(reservations.id, r.id));
+      }
+      return held.length;
+    });
+  }
+
+  /**
+   * Release holds older than `ttlMs` whose basket never captured. The sweep runs
+   * off the request path (the worker), so an abandoned checkout does not pin stock
+   * forever. Returns how many were released.
+   */
+  async expireReservations(ttlMs: number): Promise<number> {
+    const cutoff = new Date(Date.now() - ttlMs);
+    return this.db.transaction(async (tx) => {
+      const stale = await tx
+        .select()
+        .from(reservations)
+        .where(and(isNull(reservations.releasedAt), lt(reservations.createdAt, cutoff)));
+      if (stale.length === 0) return 0;
+      const now = new Date();
+      let released = 0;
+      for (const r of stale) {
+        const [b] = await tx
+          .select({ state: baskets.state })
+          .from(baskets)
+          .where(eq(baskets.id, r.basketId))
+          .limit(1);
+        if (!b || b.state !== "paid") {
+          await tx
+            .update(shopItems)
+            .set({
+              reservedQty: raw`GREATEST(${shopItems.reservedQty} - ${String(r.qty)}::numeric, 0)`,
+              updatedAt: now,
+            })
+            .where(eq(shopItems.id, r.shopItemId));
+          released += 1;
+        }
+        await tx.update(reservations).set({ releasedAt: now }).where(eq(reservations.id, r.id));
+      }
+      return released;
+    });
+  }
+
   /* -------------------------------- payments ------------------------------- */
 
   async createPayment(input: {
@@ -520,6 +650,9 @@ export class MoltolStore {
     approveUrl?: string | null;
     amountCents: number;
     currency: string;
+    dealAmountCents?: number;
+    dealCurrency?: string;
+    fxRate?: number;
   }): Promise<void> {
     await this.db
       .insert(payments)
@@ -530,8 +663,47 @@ export class MoltolStore {
         approveUrl: input.approveUrl ?? null,
         amountCents: input.amountCents,
         currency: input.currency,
+        dealAmountCents: input.dealAmountCents ?? null,
+        dealCurrency: input.dealCurrency ?? null,
+        fxRate: input.fxRate !== undefined ? String(input.fxRate) : null,
       })
       .onConflictDoNothing();
+  }
+
+  /**
+   * Swap a basket's order for a fresh one (a retry after a denial or expiry).
+   * The old order id is dropped so the unique index frees up; a late webhook for
+   * it finds no payment row and no-ops.
+   */
+  async replaceBasketOrder(
+    basketId: string,
+    order: {
+      paypalOrderId: string;
+      approveUrl: string | null;
+      amountCents: number;
+      currency: string;
+      dealAmountCents?: number;
+      dealCurrency?: string;
+      fxRate?: number;
+    },
+  ): Promise<boolean> {
+    const rows = await this.db
+      .update(payments)
+      .set({
+        paypalOrderId: order.paypalOrderId,
+        approveUrl: order.approveUrl,
+        amountCents: order.amountCents,
+        currency: order.currency,
+        dealAmountCents: order.dealAmountCents ?? null,
+        dealCurrency: order.dealCurrency ?? null,
+        fxRate: order.fxRate !== undefined ? String(order.fxRate) : null,
+        paypalCaptureId: null,
+        status: "order_created",
+        updatedAt: new Date(),
+      })
+      .where(eq(payments.basketId, basketId))
+      .returning({ id: payments.id });
+    return rows.length > 0;
   }
 
   async getPaymentByNegotiation(negotiationId: string): Promise<PaymentRow | null> {
@@ -757,7 +929,13 @@ export class MoltolStore {
     lat?: number | null;
     lng?: number | null;
   }): Promise<ShopRow> {
-    const rows = await this.db.insert(shops).values(input).returning();
+    const rows = await this.db
+      .insert(shops)
+      .values({
+        ...input,
+        ...(input.lat != null && input.lng != null ? { locationUpdatedAt: new Date() } : {}),
+      })
+      .returning();
     return rows[0]!;
   }
 
@@ -784,9 +962,33 @@ export class MoltolStore {
       reopenAt: Date | null;
     }>,
   ): Promise<ShopRow | null> {
+    const movesPin = patch.lat !== undefined || patch.lng !== undefined;
     const rows = await this.db
       .update(shops)
-      .set({ ...patch, updatedAt: new Date() })
+      .set({
+        ...patch,
+        ...(movesPin ? { locationUpdatedAt: new Date() } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(shops.id, id))
+      .returning();
+    return rows[0] ?? null;
+  }
+
+  /** Fast path for a vendor's moving pin (`PATCH /v1/shops/me/location`). */
+  async updateShopLocation(
+    id: string,
+    location: { lat: number; lng: number } | null,
+  ): Promise<ShopRow | null> {
+    const now = new Date();
+    const rows = await this.db
+      .update(shops)
+      .set({
+        lat: location?.lat ?? null,
+        lng: location?.lng ?? null,
+        locationUpdatedAt: location ? now : null,
+        updatedAt: now,
+      })
       .where(eq(shops.id, id))
       .returning();
     return rows[0] ?? null;
@@ -813,6 +1015,100 @@ export class MoltolStore {
         ),
       )
       .limit(500);
+  }
+
+  /**
+   * The shop/basket a LINE belongs to, for the seller's deal feed. Null for a
+   * standalone negotiation (no shop), so it never enters a shop's feed.
+   */
+  async lineContext(
+    negotiationId: string,
+  ): Promise<{ shopId: string; basketId: string; name: string; currency: string } | null> {
+    const [row] = await this.db
+      .select({
+        shopId: baskets.shopId,
+        basketId: baskets.id,
+        name: negotiations.query,
+        currency: negotiations.currency,
+      })
+      .from(negotiations)
+      .innerJoin(baskets, eq(negotiations.basketId, baskets.id))
+      .where(eq(negotiations.id, negotiationId))
+      .limit(1);
+    return row ?? null;
+  }
+
+  /** Every basket at a shop (any state), newest first — the deal funnel's denominator. */
+  async listShopBaskets(shopId: string, since?: Date, limit = 500) {
+    return this.db
+      .select()
+      .from(baskets)
+      .where(and(eq(baskets.shopId, shopId), since ? gte(baskets.createdAt, since) : undefined))
+      .orderBy(desc(baskets.createdAt))
+      .limit(limit);
+  }
+
+  /**
+   * The seller's ledger grid: every line of every PAID basket at this shop, with
+   * the vendor's snapshotted floor and the revealed proof's fairness. Seller-only.
+   */
+  async shopLedgerLines(
+    shopId: string,
+    since?: Date,
+    limit = 2000,
+  ): Promise<
+    {
+      negotiationId: string;
+      basketId: string;
+      ts: Date;
+      currency: string;
+      itemId: string | null;
+      name: string;
+      emoji: string | null;
+      unit: string | null;
+      qty: number;
+      unitCents: number | null;
+      listCents: number | null;
+      floorCents: number | null;
+      fairness: number | null;
+      verified: boolean;
+    }[]
+  > {
+    const rows = await this.db
+      .select({
+        negotiationId: negotiations.id,
+        basketId: baskets.id,
+        ts: baskets.paidAt,
+        currency: negotiations.currency,
+        itemId: negotiations.shopItemId,
+        name: negotiations.query,
+        emoji: negotiations.itemEmoji,
+        unit: negotiations.itemUnit,
+        qty: negotiations.qty,
+        unitCents: negotiations.agreedPriceCents,
+        listCents: negotiations.openCents,
+        floorCents: negotiations.floorCents,
+        fairness: proofs.fairness,
+        verified: proofs.verified,
+      })
+      .from(negotiations)
+      .innerJoin(baskets, eq(negotiations.basketId, baskets.id))
+      .leftJoin(proofs, eq(proofs.negotiationId, negotiations.id))
+      .where(
+        and(
+          eq(baskets.shopId, shopId),
+          eq(baskets.state, "paid"),
+          since ? gte(baskets.paidAt, since) : undefined,
+        ),
+      )
+      .orderBy(desc(baskets.paidAt))
+      .limit(limit);
+    return rows.map((r) => ({
+      ...r,
+      ts: r.ts ?? new Date(0),
+      qty: toNumber(r.qty) ?? 1,
+      verified: r.verified === "true",
+    }));
   }
 
   async countItemsByShop(shopIds: string[]): Promise<Map<string, number>> {
