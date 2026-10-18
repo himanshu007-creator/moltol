@@ -2,11 +2,13 @@ import type { FastifyInstance } from "fastify";
 import { CreateNegotiationSchema } from "@moltol/contracts";
 import type { NegotiationRunner } from "@moltol/engine";
 import { PayPalApiError, SIMULATOR_WEBHOOK_ID, verifyWebhookSignature } from "@moltol/paypal";
+import { createCheckoutForDeal } from "./checkout";
 import type { Container } from "./container";
 import { invalidBody, isUuid, sendKnownError, sendProblem } from "./http";
 import { applyCapture, approveAndCapture, refundPayment, settleCapture } from "./payments";
 import { revealProof } from "./proof";
 import { resumeSeqs, streamNegotiations } from "./sse";
+import { paymentQuote } from "./views";
 
 export interface RouteDeps {
   container: Container;
@@ -121,18 +123,12 @@ export async function registerCoreRoutes(app: FastifyInstance, deps: RouteDeps):
 
     const existing = await store.getPaymentByNegotiation(n.id);
     if (existing) {
-      return {
-        negotiationId: n.id,
-        paypalOrderId: existing.paypalOrderId,
-        approveUrl: existing.approveUrl,
-        amountCents: existing.amountCents,
-        currency: existing.currency,
-      };
+      return { negotiationId: n.id, ...paymentQuote(existing) };
     }
 
-    let order: { orderId: string; approveUrl: string | null };
+    let quote: Awaited<ReturnType<typeof createCheckoutForDeal>>;
     try {
-      order = await checkout.createCheckout({
+      quote = await createCheckoutForDeal(container, {
         referenceId: n.id,
         amountCents: n.agreedPriceCents,
         currency: n.currency,
@@ -140,12 +136,16 @@ export async function registerCoreRoutes(app: FastifyInstance, deps: RouteDeps):
     } catch (err) {
       return sendKnownError(reply, err);
     }
+    const { order, charged } = quote;
     await store.createPayment({
       negotiationId: n.id,
       paypalOrderId: order.orderId,
       approveUrl: order.approveUrl,
-      amountCents: n.agreedPriceCents,
-      currency: n.currency,
+      amountCents: charged.amountCents,
+      currency: charged.currency,
+      dealAmountCents: n.agreedPriceCents,
+      dealCurrency: n.currency,
+      fxRate: charged.fxRate,
     });
     await store.setPayment(n.id, order.orderId);
     const event = await store.appendSystemEvent(
@@ -158,8 +158,10 @@ export async function registerCoreRoutes(app: FastifyInstance, deps: RouteDeps):
       negotiationId: n.id,
       paypalOrderId: order.orderId,
       approveUrl: order.approveUrl,
-      amountCents: n.agreedPriceCents,
-      currency: n.currency,
+      amountCents: charged.amountCents,
+      currency: charged.currency,
+      deal: { amountCents: n.agreedPriceCents, currency: n.currency },
+      fxRate: charged.fxRate,
     });
   });
 
@@ -255,7 +257,7 @@ export async function registerCoreRoutes(app: FastifyInstance, deps: RouteDeps):
     "/v1/market/comps",
     async (req, reply) => {
       const query = (req.query.query ?? "water bottle").slice(0, 200);
-      const currency = (req.query.currency ?? "USD").toUpperCase();
+      const currency = (req.query.currency ?? "INR").toUpperCase();
       if (!/^[A-Z]{3}$/.test(currency)) return sendProblem(reply, 400, "invalid_currency");
       return market.getComps(query, currency);
     },

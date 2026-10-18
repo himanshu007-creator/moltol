@@ -1,0 +1,1 @@
+ALTER TABLE "negotiations" ADD COLUMN "floor_cents" integer;

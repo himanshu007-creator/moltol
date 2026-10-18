@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from 'react';
-import { useInventory } from '@/stores/inventory';
+import { useMemo, useRef, useState } from "react";
+import { useInventory } from "@/stores/inventory";
 import {
   CSV_FIELDS,
   CSV_LABELS,
@@ -9,21 +9,27 @@ import {
   parseVoiceLine,
   rowsToDrafts,
   type CsvField,
-} from '@/lib/inventory';
-import { formatMoney } from '@/lib/money';
-import { UNITS, type UnitId } from '@/lib/units';
-import { cn } from '@/lib/cn';
-import type { FormValues } from '@/components/vendor/ItemForm';
-import { detectItems, searchItems, toThumb, type Detection, type Suggestion } from '@/lib/vision';
-import { backendComps, type BackendMarketRange } from '@/lib/backend';
+} from "@/lib/inventory";
+import { formatMoney } from "@/lib/money";
+import { UNITS, type UnitId } from "@/lib/units";
+import { cn } from "@/lib/cn";
+import type { FormValues } from "@/components/vendor/ItemForm";
+import {
+  detectItems,
+  searchItems,
+  toThumb,
+  type Detection,
+  type Suggestion,
+} from "@/lib/vision";
+import { backendComps, type BackendMarketRange } from "@/lib/backend";
 
-export type AddMode = 'manual' | 'csv' | 'voice' | 'snap';
+export type AddMode = "manual" | "csv" | "voice" | "snap";
 
 const MODES: Array<{ id: AddMode; label: string; icon: string }> = [
-  { id: 'manual', label: 'Manual', icon: '✍️' },
-  { id: 'csv', label: 'CSV file', icon: '📄' },
-  { id: 'voice', label: 'Say it', icon: '🎙️' },
-  { id: 'snap', label: 'Snap', icon: '📷' },
+  { id: "manual", label: "Manual", icon: "✍️" },
+  { id: "csv", label: "CSV file", icon: "📄" },
+  { id: "voice", label: "Say it", icon: "🎙️" },
+  { id: "snap", label: "Snap", icon: "📷" },
 ];
 
 const SAMPLE_CSV = `name,category,qty,unit,cost,min,list,lowStock
@@ -34,11 +40,19 @@ Milk,dairy,20,litre,52,56,62,4`;
  * Quick-add paths. Each one ends in the same confirm-or-edit form, except CSV,
  * which shows a validation preview and imports the valid rows.
  */
-export default function AddItem({ onPrefill }: { onPrefill: (v: Partial<FormValues>) => void }) {
-  const [mode, setMode] = useState<AddMode>('manual');
+export default function AddItem({
+  onPrefill,
+}: {
+  onPrefill: (v: Partial<FormValues>) => void;
+}) {
+  const [mode, setMode] = useState<AddMode>("manual");
   return (
     <section aria-label="Add items" className="grid gap-4">
-      <div role="tablist" aria-label="How to add" className="grid grid-cols-4 gap-2">
+      <div
+        role="tablist"
+        aria-label="How to add"
+        className="grid grid-cols-4 gap-2"
+      >
         {MODES.map((m) => (
           <button
             key={m.id}
@@ -47,20 +61,24 @@ export default function AddItem({ onPrefill }: { onPrefill: (v: Partial<FormValu
             type="button"
             onClick={() => setMode(m.id)}
             className={cn(
-              'flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-2xl text-xs font-semibold',
-              mode === m.id ? 'bg-ink text-paper' : 'bg-paper-3 text-ink',
+              "flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-2xl text-xs font-semibold",
+              mode === m.id ? "bg-ink text-paper" : "bg-paper-3 text-ink",
             )}
           >
-            <span className="text-lg" aria-hidden="true">{m.icon}</span>
+            <span className="text-lg" aria-hidden="true">
+              {m.icon}
+            </span>
             {m.label}
           </button>
         ))}
       </div>
-      {mode === 'csv' && <CsvImport />}
-      {mode === 'voice' && <VoiceAdd onPrefill={onPrefill} />}
-      {mode === 'snap' && <SnapAdd onPrefill={onPrefill} />}
-      {mode === 'manual' && (
-        <p className="text-sm text-ink-faint">Fill in the form below. Your lowest price is only seen by you.</p>
+      {mode === "csv" && <CsvImport />}
+      {mode === "voice" && <VoiceAdd onPrefill={onPrefill} />}
+      {mode === "snap" && <SnapAdd onPrefill={onPrefill} />}
+      {mode === "manual" && (
+        <p className="text-sm text-ink-faint">
+          Fill in the form below. Your lowest price is only seen by you.
+        </p>
       )}
     </section>
   );
@@ -71,13 +89,16 @@ export default function AddItem({ onPrefill }: { onPrefill: (v: Partial<FormValu
 function CsvImport() {
   const importMany = useInventory((s) => s.importMany);
   const [rows, setRows] = useState<string[][]>([]);
-  const [fileName, setFileName] = useState('');
+  const [fileName, setFileName] = useState("");
   const [map, setMap] = useState<Record<CsvField, number> | null>(null);
   const [done, setDone] = useState<number | null>(null);
 
   const headers = rows[0] ?? [];
   const current = map ?? guessMapping(headers);
-  const checked = useMemo(() => rowsToDrafts(rows.slice(1), current), [rows, current]);
+  const checked = useMemo(
+    () => rowsToDrafts(rows.slice(1), current),
+    [rows, current],
+  );
   const valid = checked.filter((r) => r.draft && r.errors.length === 0);
 
   const load = async (file: File) => {
@@ -111,20 +132,31 @@ function CsvImport() {
         >
           Download sample
         </a>
-        {fileName && <span className="text-xs text-ink-faint">{fileName} · {rows.length - 1} rows</span>}
+        {fileName && (
+          <span className="text-xs text-ink-faint">
+            {fileName} · {rows.length - 1} rows
+          </span>
+        )}
       </div>
 
       {rows.length > 1 && (
         <>
           <fieldset className="grid gap-2 sm:grid-cols-2">
-            <legend className="text-sm font-semibold text-ink">Match your columns</legend>
+            <legend className="text-sm font-semibold text-ink">
+              Match your columns
+            </legend>
             {CSV_FIELDS.map((f) => (
-              <label key={f} className="flex items-center justify-between gap-3 text-sm text-ink">
+              <label
+                key={f}
+                className="flex items-center justify-between gap-3 text-sm text-ink"
+              >
                 {CSV_LABELS[f]}
                 <select
                   className="min-h-11 rounded-xl border border-chalk bg-paper px-2 text-base"
                   value={current[f]}
-                  onChange={(e) => setMap({ ...current, [f]: Number(e.target.value) })}
+                  onChange={(e) =>
+                    setMap({ ...current, [f]: Number(e.target.value) })
+                  }
                 >
                   <option value={-1}>— not in file —</option>
                   {headers.map((h, i) => (
@@ -153,14 +185,24 @@ function CsvImport() {
                 {checked.slice(0, 50).map((r) => (
                   <tr key={r.line} className="border-t border-chalk/60">
                     <td className="px-3 py-2 text-ink-faint">{r.line}</td>
-                    <td className="px-3 py-2 text-ink">{r.draft?.name ?? '—'}</td>
-                    <td className="px-3 py-2 tabular-nums">{r.draft ? `${r.draft.qty} ${UNITS[r.draft.unit].label}` : '—'}</td>
-                    <td className="px-3 py-2 tabular-nums">{r.draft ? formatMoney(r.draft.listCents) : '—'}</td>
+                    <td className="px-3 py-2 text-ink">
+                      {r.draft?.name ?? "—"}
+                    </td>
+                    <td className="px-3 py-2 tabular-nums">
+                      {r.draft
+                        ? `${r.draft.qty} ${UNITS[r.draft.unit].label}`
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-2 tabular-nums">
+                      {r.draft ? formatMoney(r.draft.listCents) : "—"}
+                    </td>
                     <td className="px-3 py-2">
                       {r.errors.length === 0 ? (
                         <span className="font-medium text-teal">✓ ready</span>
                       ) : (
-                        <span className="text-xs font-medium text-chili">{r.errors.join(' · ')}</span>
+                        <span className="text-xs font-medium text-chili">
+                          {r.errors.join(" · ")}
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -176,13 +218,15 @@ function CsvImport() {
               onClick={() => {
                 setDone(importMany(valid.map((r) => r.draft!)));
                 setRows([]);
-                setFileName('');
+                setFileName("");
               }}
               className="min-h-11 rounded-2xl bg-teal px-5 py-2.5 font-semibold text-white disabled:opacity-40"
             >
-              Import {valid.length} valid {valid.length === 1 ? 'row' : 'rows'}
+              Import {valid.length} valid {valid.length === 1 ? "row" : "rows"}
             </button>
-            <span className="text-xs text-ink-faint">{checked.length - valid.length} rows with errors are skipped.</span>
+            <span className="text-xs text-ink-faint">
+              {checked.length - valid.length} rows with errors are skipped.
+            </span>
           </div>
         </>
       )}
@@ -197,26 +241,44 @@ function CsvImport() {
 
 /* -------------------------------- Voice -------------------------------- */
 
-type SpeechRec = { lang: string; interimResults: boolean; onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onend: (() => void) | null; start: () => void };
+type SpeechRec = {
+  lang: string;
+  interimResults: boolean;
+  onresult:
+    | ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void)
+    | null;
+  onend: (() => void) | null;
+  start: () => void;
+};
 
-function VoiceAdd({ onPrefill }: { onPrefill: (v: Partial<FormValues>) => void }) {
-  const [text, setText] = useState('');
+function VoiceAdd({
+  onPrefill,
+}: {
+  onPrefill: (v: Partial<FormValues>) => void;
+}) {
+  const [text, setText] = useState("");
   const [listening, setListening] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const parsed = useMemo(() => (text.trim() ? parseVoiceLine(text) : null), [text]);
+  const parsed = useMemo(
+    () => (text.trim() ? parseVoiceLine(text) : null),
+    [text],
+  );
   const recRef = useRef<SpeechRec | null>(null);
 
   const listen = () => {
-    const w = window as unknown as { SpeechRecognition?: new () => SpeechRec; webkitSpeechRecognition?: new () => SpeechRec };
+    const w = window as unknown as {
+      SpeechRecognition?: new () => SpeechRec;
+      webkitSpeechRecognition?: new () => SpeechRec;
+    };
     const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
     if (!Ctor) {
-      setErr('Voice is not available in this browser. Type it instead.');
+      setErr("Voice is not available in this browser. Type it instead.");
       return;
     }
     const rec = new Ctor();
-    rec.lang = 'en-IN';
+    rec.lang = "en-IN";
     rec.interimResults = false;
-    rec.onresult = (e) => setText(e.results[0]?.[0]?.transcript ?? '');
+    rec.onresult = (e) => setText(e.results[0]?.[0]?.transcript ?? "");
     rec.onend = () => setListening(false);
     recRef.current = rec;
     setErr(null);
@@ -227,7 +289,10 @@ function VoiceAdd({ onPrefill }: { onPrefill: (v: Partial<FormValues>) => void }
   return (
     <div className="grid gap-3 surface p-4">
       <p className="text-sm text-ink">
-        Say or type it the way you speak: <span className="font-mono text-ink-faint">“20 kilo tamatar, 30 rupaye kilo”</span>
+        Say or type it the way you speak:{" "}
+        <span className="font-mono text-ink-faint">
+          “20 kilo tamatar, 30 rupaye kilo”
+        </span>
       </p>
       <div className="flex gap-2">
         <input
@@ -241,20 +306,44 @@ function VoiceAdd({ onPrefill }: { onPrefill: (v: Partial<FormValues>) => void }
           type="button"
           onClick={listen}
           aria-pressed={listening}
-          className={cn('min-h-11 rounded-2xl px-4 text-sm font-semibold', listening ? 'bg-chili text-white' : 'bg-paper-3 text-ink')}
+          className={cn(
+            "min-h-11 rounded-2xl px-4 text-sm font-semibold",
+            listening ? "bg-chili text-white" : "bg-paper-3 text-ink",
+          )}
         >
-          {listening ? 'Listening…' : '🎙️ Speak'}
+          {listening ? "Listening…" : "🎙️ Speak"}
         </button>
       </div>
-      {err && <p role="alert" className="text-xs text-chili">{err}</p>}
-      {text.trim() && !parsed && <p className="text-xs text-chili">Could not find an item name. Try “20 kilo tamatar”.</p>}
+      {err && (
+        <p role="alert" className="text-xs text-chili">
+          {err}
+        </p>
+      )}
+      {text.trim() && !parsed && (
+        <p className="text-xs text-chili">
+          Could not find an item name. Try “20 kilo tamatar”.
+        </p>
+      )}
       {parsed && (
         <div className="grid gap-2 rounded-2xl bg-paper p-3" aria-live="polite">
           <p className="text-sm text-ink">
-            Got it: <b>{parsed.qty} {UNITS[parsed.unit].label}</b> of <b>{parsed.name}</b>
-            {parsed.listCents != null && <> at <b>{formatMoney(parsed.listCents)}</b> per {UNITS[parsed.unit].label}</>}.
+            Got it:{" "}
+            <b>
+              {parsed.qty} {UNITS[parsed.unit].label}
+            </b>{" "}
+            of <b>{parsed.name}</b>
+            {parsed.listCents != null && (
+              <>
+                {" "}
+                at <b>{formatMoney(parsed.listCents)}</b> per{" "}
+                {UNITS[parsed.unit].label}
+              </>
+            )}
+            .
           </p>
-          <p className="text-xs text-ink-faint">Cost and lowest price are suggested. Check them before you save.</p>
+          <p className="text-xs text-ink-faint">
+            Cost and lowest price are suggested. Check them before you save.
+          </p>
           <button
             type="button"
             onClick={() => onPrefill(voiceToForm(parsed))}
@@ -268,48 +357,57 @@ function VoiceAdd({ onPrefill }: { onPrefill: (v: Partial<FormValues>) => void }
   );
 }
 
-function voiceToForm(p: NonNullable<ReturnType<typeof parseVoiceLine>>): Partial<FormValues> {
+function voiceToForm(
+  p: NonNullable<ReturnType<typeof parseVoiceLine>>,
+): Partial<FormValues> {
   const list = p.listCents ?? 0;
   return {
     name: p.name,
     qty: String(p.qty),
     unit: p.unit as UnitId,
-    list: list ? String(list / 100) : '',
+    list: list ? String(list / 100) : "",
     // suggested, not known: cost 70% of list, lowest price 90%. The user fixes these.
-    cost: list ? String(Math.round(list * 0.7) / 100) : '',
-    min: list ? String(Math.round(list * 0.9) / 100) : '',
+    cost: list ? String(Math.round(list * 0.7) / 100) : "",
+    min: list ? String(Math.round(list * 0.9) / 100) : "",
   };
 }
 
 /* -------------------------------- Snap --------------------------------- */
 
 const SOURCE_LABEL = {
-  vision: 'Vision model',
-  'serpapi-lens': 'Google Lens (SerpAPI)',
-  catalogue: 'Offline catalogue',
-  'serpapi-shopping': 'Shopping search (SerpAPI)',
+  vision: "Vision model",
+  "serpapi-lens": "Google Lens (SerpAPI)",
+  catalogue: "Offline catalogue",
+  "serpapi-shopping": "Shopping search (SerpAPI)",
 } as const;
 
-function SnapAdd({ onPrefill }: { onPrefill: (v: Partial<FormValues>) => void }) {
-  const [phase, setPhase] = useState<'idle' | 'detecting' | 'ready' | 'error'>('idle');
+function SnapAdd({
+  onPrefill,
+}: {
+  onPrefill: (v: Partial<FormValues>) => void;
+}) {
+  const [phase, setPhase] = useState<"idle" | "detecting" | "ready" | "error">(
+    "idle",
+  );
   const [thumb, setThumb] = useState<string | null>(null);
   const [det, setDet] = useState<Detection | null>(null);
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState("");
   const [found, setFound] = useState<Suggestion[] | null>(null);
-  const [foundSource, setFoundSource] = useState<keyof typeof SOURCE_LABEL>('catalogue');
+  const [foundSource, setFoundSource] =
+    useState<keyof typeof SOURCE_LABEL>("catalogue");
   const [searching, setSearching] = useState(false);
   const [market, setMarket] = useState<BackendMarketRange | null>(null);
 
   const onFile = async (file: File) => {
-    setPhase('detecting');
+    setPhase("detecting");
     setFound(null);
     try {
       const t = await toThumb(file);
       setThumb(t);
       setDet(await detectItems(t));
-      setPhase('ready');
+      setPhase("ready");
     } catch {
-      setPhase('error');
+      setPhase("error");
     }
   };
 
@@ -332,18 +430,31 @@ function SnapAdd({ onPrefill }: { onPrefill: (v: Partial<FormValues>) => void })
       unit: s.unit,
       list: String(s.listCents / 100),
       compKey: s.compKey,
-      photo: thumb ?? '',
+      photo: thumb ?? "",
     });
 
   const list = (items: Suggestion[]) => (
     <ul className="grid gap-2" aria-label="Suggestions">
       {items.map((s) => (
         <li key={s.name}>
-          <button type="button" onClick={() => confirm(s)} className="flex min-h-14 w-full items-center gap-3 rounded-2xl bg-paper p-3 text-left transition active:scale-[0.99]">
-            <span className="grid h-10 w-10 place-items-center rounded-xl bg-paper-3 text-2xl" aria-hidden="true">{s.emoji}</span>
+          <button
+            type="button"
+            onClick={() => confirm(s)}
+            className="flex min-h-14 w-full items-center gap-3 rounded-2xl bg-paper p-3 text-left transition active:scale-[0.99]"
+          >
+            <span
+              className="grid h-10 w-10 place-items-center rounded-xl bg-paper-3 text-2xl"
+              aria-hidden="true"
+            >
+              {s.emoji}
+            </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-semibold text-ink">{s.name}</span>
-              <span className="t-num text-xs text-ink-muted">suggested {formatMoney(s.listCents)} / {s.unit}</span>
+              <span className="block truncate text-sm font-semibold text-ink">
+                {s.name}
+              </span>
+              <span className="t-num text-xs text-ink-muted">
+                suggested {formatMoney(s.listCents)} / {s.unit}
+              </span>
             </span>
             <span className="text-xs font-semibold text-indigo">Use this</span>
           </button>
@@ -354,7 +465,10 @@ function SnapAdd({ onPrefill }: { onPrefill: (v: Partial<FormValues>) => void })
 
   return (
     <div className="grid gap-4 rounded-3xl bg-paper-2 p-4">
-      <p className="text-sm text-ink">Take a photo of the goods. We suggest items, you confirm or edit, and the photo is saved with the item.</p>
+      <p className="text-sm text-ink">
+        Take a photo of the goods. We suggest items, you confirm or edit, and
+        the photo is saved with the item.
+      </p>
       <div className="flex flex-wrap items-center gap-3">
         <label className="inline-flex min-h-11 cursor-pointer items-center rounded-2xl bg-ink px-5 text-sm font-semibold text-paper">
           Snap a photo
@@ -366,22 +480,35 @@ function SnapAdd({ onPrefill }: { onPrefill: (v: Partial<FormValues>) => void })
             onChange={(e) => {
               const f = e.target.files?.[0];
               if (f) void onFile(f);
-              e.target.value = '';
+              e.target.value = "";
             }}
           />
         </label>
-        {thumb && <img src={thumb} alt="Your photo" className="h-14 w-14 rounded-2xl object-cover" />}
+        {thumb && (
+          <img
+            src={thumb}
+            alt="Your photo"
+            className="h-14 w-14 rounded-2xl object-cover"
+          />
+        )}
       </div>
 
-      {phase === 'detecting' && (
+      {phase === "detecting" && (
         <div role="status" className="grid gap-2" aria-label="Detecting">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="h-14 animate-pulse rounded-2xl bg-paper-3 motion-reduce:animate-none" />
+            <div
+              key={i}
+              className="h-14 animate-pulse rounded-2xl bg-paper-3 motion-reduce:animate-none"
+            />
           ))}
         </div>
       )}
-      {phase === 'error' && <p role="alert" className="text-sm text-chili">Could not read that photo. Try again, or search by name.</p>}
-      {phase === 'ready' && det && (
+      {phase === "error" && (
+        <p role="alert" className="text-sm text-chili">
+          Could not read that photo. Try again, or search by name.
+        </p>
+      )}
+      {phase === "ready" && det && (
         <div className="grid gap-3">
           <p className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
             <span className="pill pill-teal">{SOURCE_LABEL[det.source]}</span>
@@ -399,23 +526,48 @@ function SnapAdd({ onPrefill }: { onPrefill: (v: Partial<FormValues>) => void })
           void search();
         }}
       >
-        <label className="text-sm font-semibold text-ink-muted" htmlFor="snap-search">Not in the list? Search by name</label>
+        <label
+          className="text-sm font-semibold text-ink-muted"
+          htmlFor="snap-search"
+        >
+          Not in the list? Search by name
+        </label>
         <div className="flex gap-2">
-          <input id="snap-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="e.g. mustard oil" className="field min-w-0 flex-1" />
-          <button type="submit" disabled={!q.trim() || searching} className="btn btn-quiet shrink-0">
-            {searching ? 'Searching' : 'Search'}
+          <input
+            id="snap-search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="e.g. mustard oil"
+            className="field min-w-0 flex-1"
+          />
+          <button
+            type="submit"
+            disabled={!q.trim() || searching}
+            className="btn btn-quiet shrink-0"
+          >
+            {searching ? "Searching" : "Search"}
           </button>
         </div>
         {found && (
           <div className="grid gap-2">
-            <p className="text-xs text-ink-muted"><span className="pill">{SOURCE_LABEL[foundSource]}</span> {found.length} match{found.length === 1 ? '' : 'es'}</p>
-            {found.length ? list(found) : <p className="text-sm text-ink-muted">Nothing matched. Add it by hand below.</p>}
+            <p className="text-xs text-ink-muted">
+              <span className="pill">{SOURCE_LABEL[foundSource]}</span>{" "}
+              {found.length} match{found.length === 1 ? "" : "es"}
+            </p>
+            {found.length ? (
+              list(found)
+            ) : (
+              <p className="text-sm text-ink-muted">
+                Nothing matched. Add it by hand below.
+              </p>
+            )}
           </div>
         )}
         {market && (
           <p className="flex flex-wrap items-center gap-2 rounded-2xl bg-indigo/10 px-3 py-2 text-xs text-ink">
             <span className="pill pill-indigo">Live backend market</span>
-            {formatMoney(market.p25Cents)}–{formatMoney(market.p75Cents)}, median {formatMoney(market.medianCents)}
+            {formatMoney(market.p25Cents)}–{formatMoney(market.p75Cents)},
+            median {formatMoney(market.medianCents)}
           </p>
         )}
       </form>

@@ -1,0 +1,1 @@
+ALTER TABLE "shops" ADD COLUMN "location_updated_at" timestamp with time zone;

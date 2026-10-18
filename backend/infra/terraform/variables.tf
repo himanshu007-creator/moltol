@@ -149,6 +149,25 @@ variable "channel3_api_key" {
   default     = ""
 }
 
+variable "serpapi_api_key" {
+  description = "SerpAPI key for live market comps (used when Channel3 is unset or fails)."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "paypal_settlement_currency" {
+  description = "Currency PayPal is charged in; shops still price in DEFAULT_CURRENCY."
+  type        = string
+  default     = "USD"
+}
+
+variable "fx_usd_per_inr" {
+  description = "INR -> USD rate applied at checkout (~0.012 = ₹83.33/$1)."
+  type        = string
+  default     = "0.012"
+}
+
 variable "seal_key" {
   description = "32-byte hex key used to AEAD-seal locked limits at rest. Empty => plaintext vault."
   type        = string

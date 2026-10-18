@@ -39,7 +39,9 @@ export const STATE_TRANSITIONS: Record<NegotiationState, readonly NegotiationSta
   paid: ["revealed"],
   revealed: [],
   no_deal: [],
-  failed: [],
+  // A denied or expired capture is not the end of the road: the buyer may try a
+  // different funding source, so a failed line can re-enter checkout.
+  failed: ["payment_pending"],
 };
 
 export function canTransition(from: NegotiationState, to: NegotiationState): boolean {
@@ -56,7 +58,7 @@ export const CreateNegotiationSchema = z.object({
   query: z.string().min(1).max(200),
   persona: PersonaSchema.default("analyst"),
   maxTotalCents: z.number().int().positive(),
-  currency: CurrencySchema.default("USD"),
+  currency: CurrencySchema.default("INR"),
   roundsMax: z.number().int().min(2).max(20).default(8),
 });
 export type CreateNegotiationInput = z.infer<typeof CreateNegotiationSchema>;
@@ -100,8 +102,13 @@ export const CheckoutResultSchema = z.object({
   negotiationId: z.string().uuid(),
   paypalOrderId: z.string(),
   approveUrl: z.string().nullable(),
+  /** What the gateway charges, in `currency` (PayPal's currency, e.g. USD). */
   amountCents: z.number().int().nonnegative(),
   currency: CurrencySchema,
+  /** The same total in the negotiation's own currency — what was haggled. */
+  deal: z.object({ amountCents: z.number().int().nonnegative(), currency: CurrencySchema }),
+  /** Deal minor units → charged minor units (1 when the gateway takes the deal currency). */
+  fxRate: z.number().positive(),
 });
 export type CheckoutResult = z.infer<typeof CheckoutResultSchema>;
 

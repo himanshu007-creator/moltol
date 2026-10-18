@@ -1,11 +1,12 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { SHOP_STATUS_CHANNEL } from "@moltol/config";
+import { dealChannel, SHOP_STATUS_CHANNEL } from "@moltol/config";
 import {
   CreateShopItemRequestSchema,
   CreateShopRequestSchema,
   NearbyQuerySchema,
   SetShopStatusRequestSchema,
   UpdateShopItemRequestSchema,
+  UpdateShopLocationSchema,
   UpdateShopRequestSchema,
   allowsFraction,
   isValidStock,
@@ -15,7 +16,7 @@ import {
 import type { ShopRow } from "@moltol/store";
 import type { Container } from "./container";
 import { invalidBody, isUuid, sendProblem } from "./http";
-import { streamShopStatus } from "./sse";
+import { streamShopDeals, streamShopStatus } from "./sse";
 import { dealView, haversineM, nearbyView, shopItemView, shopStatus, shopView } from "./views";
 
 const MINUTE = 60_000;
@@ -83,6 +84,21 @@ export async function registerShopRoutes(
       ...rest,
       ...(location !== undefined ? { lat: location?.lat ?? null, lng: location?.lng ?? null } : {}),
     });
+    return reply.send(shopView(updated!));
+  });
+
+  /**
+   * The vendor's moving pin. A cart that relocates pushes here every few seconds
+   * while open; buyers pick it up from `GET /v1/shops/nearby` (poll), so a 3s
+   * client loop stays a cheap read. Consent for continuous sharing is the
+   * vendor's: they only send while a sharing toggle is on.
+   */
+  app.patch("/v1/shops/me/location", auth, async (req, reply) => {
+    const shop = await store.getShopByUserId(req.user.sub);
+    if (!shop) return sendProblem(reply, 404, "no_shop", "Create a shop first.");
+    const parsed = UpdateShopLocationSchema.safeParse(req.body);
+    if (!parsed.success) return invalidBody(reply, parsed.error);
+    const updated = await store.updateShopLocation(shop.id, parsed.data);
     return reply.send(shopView(updated!));
   });
 
@@ -178,6 +194,38 @@ export async function registerShopRoutes(
     deals.sort((a, b) => b.ts.localeCompare(a.ts));
     return reply.send(deals);
   });
+
+  /**
+   * A 2-minute ticket for the seller's own deal stream. An EventSource can't
+   * send an Authorization header, so the short-lived, shop-scoped ticket goes in
+   * the query string instead — useless for anything else.
+   */
+  app.post("/v1/shops/me/deals/ticket", auth, async (req, reply) => {
+    const shop = await store.getShopByUserId(req.user.sub);
+    if (!shop) return sendProblem(reply, 404, "no_shop", "Create a shop first.");
+    const ticket = app.jwt.sign({ shopId: shop.id, scope: "seller-stream" }, { expiresIn: "120s" });
+    return reply.send({ ticket, expiresInSec: 120 });
+  });
+
+  /** The seller's private live feed of incoming offers and closed lanes. */
+  app.get<{ Querystring: { ticket?: string } }>(
+    "/v1/shops/me/deals/stream",
+    { exposeHeadRoute: false },
+    async (req, reply) => {
+      const raw = req.query.ticket;
+      if (!raw) return sendProblem(reply, 401, "missing_ticket");
+      let payload: { shopId?: string; scope?: string };
+      try {
+        payload = app.jwt.verify(raw);
+      } catch {
+        return sendProblem(reply, 401, "invalid_ticket");
+      }
+      if (payload.scope !== "seller-stream" || typeof payload.shopId !== "string") {
+        return sendProblem(reply, 401, "invalid_ticket");
+      }
+      await streamShopDeals(req, reply, redis, payload.shopId);
+    },
+  );
 
   /* ------------------------------ public views ----------------------------- */
 
