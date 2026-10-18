@@ -349,6 +349,8 @@ export interface BasketCheckoutResult {
   approveUrl: string | null;
   amountCents: number;
   currency: string;
+  deal: { amountCents: number; currency: string };
+  fxRate: number;
 }
 export interface ProofResult {
   negotiationId: string;

@@ -1,21 +1,36 @@
 # BE handoff
 
-Source of truth: zod schemas and the typed TS interfaces named below. Everything here is what the FE
-calls today through mock adapters. Money is integer paise (`₹`), formatted with Intl (`src/lib/money.ts`).
-Quantities always carry a unit (`src/lib/units.ts`). Status: **mock**, the FE runs fully offline.
+Source of truth: zod schemas and the typed TS interfaces named below. Money is integer paise (`₹`),
+formatted with Intl (`src/lib/money.ts`). Quantities always carry a unit (`src/lib/units.ts`).
+
+> **Status update (backend now real and deployed).** The API is live at
+> `https://api.13.238.88.61.nip.io` (`/v1/version` → `paypal: real`), built from PR **#5**
+> (`feat/backend-frontend-inr-fx-snap-feed`). §1's mock layer and §4's table now point at real
+> routes; where the doc and the API disagree, the API (§4) wins. The FE still runs its mock by
+> default (`PUBLIC_USE_FIXTURE=true`), so this file now reads as "mock today, real endpoint
+> beside it". The API is **basket-first**: the per-line primitive is `POST /v1/baskets`
+> (one negotiation per basket line under one basket id), not `POST /v1/negotiations` — the
+> latter survives only as the original single-query demo.
+>
+> Also new since the doc was written: seller deal stream (`/v1/shops/me/deals/*`), live
+> location (`PATCH /v1/shops/me/location` + `locationUpdatedAt` on nearby), photo snap
+> (`POST /v1/inventory/snap`), payment retry (`POST /v1/baskets/:id/retry`), ledger agent
+> (`POST /v1/ledger/ask`), and **INR→USD checkout** (§6). See `backend/docs/adr/` 0007–0008
+> for the two design decisions.
 
 ## 1. Overview and mock layer
 
-| Concern | Mock today | File | Real later |
+| Concern | Mock today | File | Real (now in the API) |
 | --- | --- | --- | --- |
-| Local data (stock, venue, orders, ledger, buyer prefs) | Zustand `persist` to IndexedDB (`moltol`/`kv`) | `src/lib/idb.ts` | REST/WS, the store becomes a cache |
-| Negotiation stream | Scripted lanes (`buildCartScript`) | `src/lib/mock/seeds.ts`, `src/stores/bazaar.ts` | WS `negotiation` channel (§5) |
-| Shop status fan-out | BroadcastChannel `moltol-venue` | `src/stores/venue.ts` | WS `shop.status` (§5) |
-| Auth + OTP | Fixed OTP `1234` | `src/lib/mock/auth.ts` | Real auth |
-| Market comps | Static `COMP_LIB` + seeded samples | `src/lib/mock/market.ts` | Channel3 / SerpAPI comps |
-| Discovery | GPS or walking distances | `src/lib/mock/discovery.ts` | Geo query |
-| Vision (snap) | Canned suggestions | `src/lib/inventory.ts` (`SNAP_SUGGESTIONS`) | Vision model, SerpAPI Lens is an option |
-| Payment | Mock PayPal-style sheet | `src/components/buyer/PayFlow.tsx` | PayPal JS SDK v6 (§6) |
+| Local data (stock, venue, orders, ledger, buyer prefs) | Zustand `persist` to IndexedDB (`moltol`/`kv`) | `src/lib/idb.ts` | REST; stores become caches (`§9` checklist) |
+| Negotiation stream | Scripted lanes (`buildCartScript`) | `src/lib/mock/seeds.ts`, `src/stores/bazaar.ts` | SSE `GET /v1/baskets/:id/events` (one frame carries every line, routed by `lineItemId`) |
+| Shop status fan-out | BroadcastChannel `moltol-venue` | `src/stores/venue.ts` | SSE `GET /v1/shops/status/stream` |
+| Seller deal feed | none | — | SSE `GET /v1/shops/me/deals/stream?ticket=` (`deal.incoming` / `deal.closed`) |
+| Auth + OTP | Fixed OTP `1234` | `src/lib/mock/auth.ts` | Real: `POST /v1/auth/signup` → `/v1/auth/otp/verify` (email OTP; token → JWT) |
+| Market comps | Static `COMP_LIB` + seeded samples | `src/lib/mock/market.ts` | `GET /v1/market/comps` (Channel3 → SerpAPI → seeded) |
+| Discovery | GPS or walking distances | `src/lib/mock/discovery.ts` | `GET /v1/shops/nearby?lat&lng&radiusM` (ships `locationUpdatedAt`) |
+| Vision (snap) | Canned suggestions | `src/lib/inventory.ts` (`SNAP_SUGGESTIONS`) | `POST /v1/inventory/snap` — image sent inline as a data URL; vision model when `LLM_*` set, else a built-in catalogue |
+| Payment | Mock PayPal-style sheet | `src/components/buyer/PayFlow.tsx` | Real: `POST /v1/baskets/:id/checkout` → approve → `/capture`, `/retry` for a denied order |
 
 **One flag to swap:** `PUBLIC_USE_FIXTURE` (`src/lib/ws.ts`, `useFixture()`). Set it to `false` and the
 transport becomes `openSocket(PUBLIC_WS_BASE + …)`. Every store keeps its shape.
@@ -157,66 +172,86 @@ They are cosmetic and must never change prices.
 
 ## 4. Endpoints
 
-Replace each mock call with the endpoint shown. Auth = `buyer` or `seller` role on the session.
+**Real routes now in the API** (verified against `/docs/json` on the live instance). Auth = `Bearer` JWT on
+`Authorization`. Deviations from the mock shape this doc describes are marked **⚠ differs**.
 
 | Method | Path | Request | Response | Auth | FE caller today |
 | --- | --- | --- | --- | --- | --- |
-| POST | `/v1/auth/otp` | `{phone}` | `{ok, sentTo}` | any | `requestOtp` |
-| POST | `/v1/auth/verify` | `{phone, otp, role}` | `{session}` | any | `verifyOtp` |
-| GET | `/v1/me` | — | `{userId, roles, activeRole, profiles}` | any | session store |
+| POST | `/v1/auth/signup` | `{email, password}` **⚠ differs (FE mocks phone)** | `{normalizedEmail, message, resendCooldownSeconds}` | any | `signup` |
+| POST | `/v1/auth/otp/verify` | `{email, code}` (6-digit, email-delivered) | `{token, user}` | any | `verifyOtp` |
+| POST | `/v1/auth/otp/resend` | `{email}` | cooldown | any | — |
+| POST | `/v1/auth/login` | `{email, password}` | `{token, user}` | any | — |
+| POST | `/v1/auth/logout` | — | revokes the session (per-`jti`) | any | — |
+| POST | `/v1/auth/password/forgot` · `/reset` | `{email}` · `{email, code, newPassword}` | — | any | — |
+| GET | `/v1/me` | — | `{id, email, hasShop, activeRole, hagglePreset, shop?}` | any | session store |
 | PATCH | `/v1/me/role` | `{activeRole}` | `{activeRole}` | any | `switchRole` |
-| GET | `/v1/shops/nearby` | `?lat&lng&radius` | `[{shopId, name, distanceM, open, persona}]` (closed listed last) | buyer | `ShopDiscovery`, `NearbyMap` |
-| GET | `/v1/shops/:id` | — | `{shop, products: BuyerItem[], status}` (no floors) | buyer | `liveShops`, `StallGrid` |
-| PUT | `/v1/shops/:id/status` | `{open, closeInMin?, reopenInMin?}` | `{status: StallStatus}` | seller (owner) | `useVenue.toggle/closeIn/reopenIn` |
-| GET | `/v1/inventory` | `?includeArchived` | `StockItem[]` | seller | `useInventory` |
-| POST | `/v1/inventory` | `StockItemSchema` minus `id, updatedAt` | `StockItem` | seller | `add` |
-| PATCH | `/v1/inventory/:id` | partial `StockItem` | `StockItem` (400 on min < cost or list < min) | seller | `update` |
-| POST | `/v1/inventory/:id/adjust` | `{delta, reason}` | `StockItem` | seller | `adjust` |
-| POST | `/v1/inventory/bulk` | `{ids, op: 'list_pct'\|'archive'\|'restore', pct?}` | `{updated}` | seller | `bulkListPct`, `setArchived` |
-| POST | `/v1/inventory/import` | CSV file or `StockDraft[]` | `{imported, errors: [{line, message}]}` | seller | `parseCsv` → `importMany` |
-| POST | `/v1/inventory/voice-parse` | `{text, locale}` | `{name, qty, unit, listCents?}` | seller | `parseVoiceLine` |
-| POST | `/v1/inventory/snap` | multipart image | `{suggestions: [{name, emoji, unit, listCents, compKey}]}` (SerpAPI or vision model) | seller | `SNAP_SUGGESTIONS` |
-| POST | `/v1/negotiations` | `{shopId, lines: [{sku, qty}], scope, request: NegotiationRequest, budgetCents?}` | `{negotiationId, lines: [{lineItemId, sku}]}` | buyer | `bazaar.start` |
-| GET | `/v1/negotiations/:id/stream` | — (WS or SSE, §5) | `NegotiationEvent` | buyer, seller | `buildCartScript`, `playEvents` |
-| POST | `/v1/negotiations/:id/lines/:lineItemId/takeover` | — | `{controlled: true}` | buyer | `takeOver` |
-| POST | `/v1/negotiations/:id/lines/:lineItemId/offer` | `{priceCents}` (guarded) | `{accepted, verdict}` | buyer | `humanOffer` |
-| POST | `/v1/negotiations/:id/accept-all` | — | `{agreed: [{lineItemId, priceCents}]}` | buyer | `acceptAll` |
-| POST | `/v1/negotiations/:id/lines/:lineItemId/accept` | — | `{priceCents}` | buyer | `acceptLane` |
-| POST | `/v1/checkout` | `{negotiationId, paymentMethod}` | `{orderId, paypalOrderId, approveUrl}` | buyer | `PayFlow` |
-| GET | `/v1/orders` | — | `Order[]` | buyer | `useOrders` |
-| GET | `/v1/orders/:id` | — | `Order` (tracker, proof) | buyer | `Orders.tsx` |
-| GET | `/v1/insights/buyer` | — | `{cards, monthly: HistoryMonth[], nudges}` | buyer | `Insights.tsx` |
-| GET | `/v1/ledger` | `?period=day\|week\|month` | `Ledger` (§7) | seller | `computeLedger` |
-| GET | `/v1/deals` | `?since` | `Deal[]` | seller | `useLedger` |
 | PUT | `/v1/me/preferences/haggle` | `{preset}` | `{preset}` | buyer | `useBuyer.setPersonality` |
+| POST | `/v1/shops/me` | `{name, emoji, persona?, location?}` | `Shop` | seller | `setup` |
+| GET · PATCH | `/v1/shops/me` | partial `Shop` | `Shop` | seller | `ShopProfile` |
+| PATCH | `/v1/shops/me/location` | `{lat, lng}` | `Shop` | seller | (new — live pin) |
+| PUT | `/v1/shops/me/status` | `{open, closeInMin?, reopenAt?}` | `{status}` | seller | `useVenue.toggle/closeIn/reopenIn` |
+| POST · PATCH · DELETE | `/v1/shops/me/items` | `CreateShopItem` / `UpdateShopItem` | `ShopItem` (**owner view: carries `floorCents`**) | seller | `add`/`update`/archive |
+| GET | `/v1/shops/nearby` | `?lat&lng&radiusM` | `NearbyShop[]` (open by distance, closed last, `locationUpdatedAt`) | buyer | `ShopDiscovery`, `NearbyMap` |
+| GET | `/v1/shops/:shopId` | — | `{shop, items: PublicShopItem[] (no floors)}` | buyer | `liveShops`, `StallGrid` |
+| POST | `/v1/baskets` | `{shopId, lines:[{itemId, qty}], request}` | `Basket` (one negotiation per line) | buyer | `bazaar.start` |
+| GET | `/v1/baskets/:id` | — | `Basket` (`totals`, `paypalOrderId`) | buyer | — |
+| POST | `/v1/baskets/:id/lines/:lineId/takeover` · `/offer` · `/accept` | `{priceCents}?` | `{line, accepted, counterCents}` | buyer | `takeOver`/`offerLine`/`acceptLine` |
+| POST | `/v1/baskets/:id/accept-all` | — | `{agreed[], basket}` | buyer | `acceptAll` |
+| POST | `/v1/baskets/:id/checkout` | — | `{paypalOrderId, approveUrl, amountCents, currency, deal{amountCents,currency}, fxRate}` **⚠ amounts are converted** | buyer | `PayFlow` (§6) |
+| POST | `/v1/baskets/:id/capture` | — | `{status, captureId, proofs[]}` | buyer | `finishCapture` |
+| POST | `/v1/baskets/:id/retry` | — | same as checkout (fresh order after a denial) **⚠ new** | buyer | (new) |
+| GET | `/v1/baskets/:id/proof` | — | `{basketId, proofs[]}` (once `paid`) | buyer | `ReceiptView` |
+| GET | `/v1/orders` · `/v1/orders/:id` | — | `Order[]` / `Order` | buyer | `useOrders`, `Orders.tsx` |
+| GET | `/v1/ledger` · `/v1/ledger/summary` | `?period=7d\|30d\|90d\|all` | `Ledger` / `LedgerSummary` **⚠ new** | seller | `computeLedger` |
+| POST | `/v1/ledger/ask` | `{question}` | `LedgerAnswer` (LLM, heuristic fallback) **⚠ new** | seller | `LedgerAsk.respond` |
+| GET | `/v1/insights/buyer` | — | `BuyerInsights` **⚠ new** | buyer | `Insights.tsx` |
+| GET | `/v1/shops/me/deals` | `?since` | `ShopDeal[]` | seller | `useLedger` |
+| POST | `/v1/shops/me/deals/ticket` | — | `{ticket, expiresInSec: 120}` **⚠ new** | seller | (new) |
+| GET | `/v1/shops/me/deals/stream` | `?ticket` (no header — SSE) | `DealFeedEvent` (`deal.incoming` \| `deal.closed`) **⚠ new** | ticket | (new) |
+| POST | `/v1/inventory/snap` | `{image: dataURL, hint?}` | `{source: vision\|catalogue, suggestions[]}` **⚠ inline data URL, not multipart** | any | `SNAP_SUGGESTIONS` |
+| GET | `/v1/market/comps` | `?query&currency` | `MarketRange` **⚠ new** | — | `COMP_LIB` |
+| POST | `/v1/negotiations` · `/checkout` · `/capture` | single-query demo | legacy, not basket-backed | — | — |
 
-Errors: `{error: {code, message, field?}}`. Price errors use `code: min_below_cost` or `list_below_min`
-and carry the friendly text the FE shows inline.
+**Not in the API (FE-only, do not wait on):** inventory CSV bulk import, `voice-parse`, bulk `list_pct`/
+`archive`, and `GET /v1/inventory` — the real seller inventory lives at `/v1/shops/me/items`.
+
+Errors are RFC 9457 `problem+json` (`type`/`title`/`detail`), **not** `{error:{code,message}}` —
+e.g. `409 insufficient_stock`, `409 checkout_started`, `409 still_negotiating`.
 
 ## 5. Realtime
 
+All live channels are **SSE**, not WS (`EventSource` cannot send an `Authorization` header, so streams
+are keyed by an unguessable id or by a 120 s ticket — see ADR 0007). Every frame's `id:` is the dot-joined
+last seq of every lane; a reconnect sends it back as `Last-Event-ID`, so nothing is replayed.
+
 | Channel | Direction | Event | Payload | Consumers |
 | --- | --- | --- | --- | --- |
-| WS `/v1/stream/:negotiationId` | server → client | `NegotiationEvent` (§3) | per `lineItemId` (to add) | buyer, seller |
-| WS `/v1/shops/:id/status` (or a shared `shop` topic) | server → client | `shop.status` `{shopId, open, closeAt, reopenAt}` | fan-out to every map client | buyer map, stall pages |
-| WS `/v1/seller/:shopId/deals` | server → client | `deal.incoming` `{negotiationId, sku, qty, offerCents, listCents, minCents}` | seller only, `minCents` allowed here | seller live feed |
-| WS `/v1/seller/:shopId/deals` | server → client | `deal.closed` `{orderId, sku, priceCents}` | soundbox, coin-drop, haptic trigger | seller |
+| SSE `GET /v1/baskets/:id/events` | server → client | `NegotiationEvent` (§3), routed by `negotiationId` (= `lineItemId`) | per line, public (`audience:"all"`) only | buyer, seller |
+| SSE `GET /v1/shops/status/stream` | server → client | `shop.status` `{shopId, open, closeAt, reopenAt}` | shared channel, no auth | buyer map, stall pages |
+| SSE `GET /v1/shops/me/deals/stream?ticket=` | server → client | `deal.incoming` `{shopId, basketId, ts, currency, totalCents, lines[]}` / `deal.closed` `{basketId, negotiationId, priceCents, …}` | seller only (mint the ticket first: `POST /v1/shops/me/deals/ticket`) | seller live feed |
+| SSE `GET /v1/negotiations/:id/events` | server → client | same union (legacy single-query demo) | — | — |
 
 FE demo today: `BroadcastChannel('moltol-venue')` carries the full stall map (`src/stores/venue.ts`).
-The payload is the same shape as `shop.status` applied to every shop, so replacing the channel with WS
+The payload is the same shape as `shop.status` applied to every shop, so replacing the channel with SSE
 changes only the transport.
 
 ## 6. PayPal flow
 
-Expected by the FE: create order → approval → capture → webhook-driven status.
+Real and verified end to end in sandbox (order → approve → capture, webhook self-verified).
 
 | Step | Who | Call | FE hook to replace |
 | --- | --- | --- | --- |
-| 1 | BE | `POST /v2/checkout/orders` (intent CAPTURE, `custom_id = negotiationId`, `PayPal-Request-Id` = negotiationId) | `PayFlow` create step |
-| 2 | FE | JS SDK v6 approval for `paypalOrderId` (sandbox only) | `PayFlow` sheet (labelled "Sandbox demo" today) |
-| 3 | BE | `POST /v2/checkout/orders/:id/capture` after approval | `PayFlow` capture step |
-| 4 | BE | Webhooks `CHECKOUT.ORDER.APPROVED`, `PAYMENT.CAPTURE.COMPLETED`, `PAYMENT.CAPTURE.REFUNDED`, verified by signature, deduped on `event.id` | WS `payment.status` event |
-| 5 | FE | Renders `payment.status`, updates `Order.paymentStatus` | `useOrders` |
+| 1 | BE | `POST /v1/baskets/:id/checkout` → Orders v2 create (intent CAPTURE, `custom_id = basketId`, stable `PayPal-Request-Id`) → `{paypalOrderId, approveUrl, amountCents, currency, deal, fxRate}` | `PayFlow` create step |
+| 2 | FE | open `approveUrl` (or the JS SDK v6 sheet) and wait | `PayFlow` sheet |
+| 3 | BE | `POST /v1/baskets/:id/capture` after approval (idempotent) | `PayFlow` capture step |
+| 4 | BE | Webhooks `CHECKOUT.ORDER.APPROVED`, `PAYMENT.CAPTURE.COMPLETED`, `PAYMENT.CAPTURE.REFUNDED` / `.DENIED`, signature-verified, deduped on `event.id` | SSE `payment.status` |
+| 5 | FE | Render `payment.status`, update `Order.paymentStatus`; on denial `POST /v1/baskets/:id/retry` issues a fresh order for the same agreed lines | `useOrders` |
+
+**INR → USD settlement (ADR 0008).** Shops price in `INR`; PayPal cannot charge INR, so the order is
+created in `PAYPAL_SETTLEMENT_CURRENCY` (default `USD`) at `FX_USD_PER_INR`. The response's
+`amountCents`/`currency` is the **charge**; `deal` is the haggled INR total and `fxRate` is the rate used.
+Show "₹4,000 ≈ $48.00" from `deal` + `fxRate` — never treat `amountCents` as the deal total. The whole
+app stays in INR (line, proof, ledger); only the payment is converted.
 
 **Swap point:** `PayFlow.tsx` should call a `PaymentGateway` interface with `createOrder`, `approve`,
 `capture`, `subscribe(status)`. The mock implements it locally, the PayPal one uses the SDK. The interface
@@ -250,40 +285,57 @@ What the FE computes today versus where it should run.
 | Commit/reveal | `commit.recorded` (hex). `proof.revealed` has `reveal {buyerLimit, buyerSalt, shopLimit, shopSalt}`. | Verify `H(limit‖salt)` server-side before emitting reveal. |
 | Min ≥ cost, list ≥ min | Client `checkPrices` in `src/lib/inventory.ts` | Same rule in the API (400). Client check is UX only. |
 | Unit rules | `clampQty` (mass/volume 3 dp, counts integer), unit enum | Reject unknown units. Reject fractional counts. |
-| Rate limits | None | Per-IP on `/v1/auth/otp`, per-user on `/v1/negotiations` (LLM cost), per-user on `/v1/inventory/snap`. |
+| Rate limits | None | Real: global `RATE_LIMIT_PER_MIN` per client IP (stricter on auth), per-user on baskets, and `/v1/inventory/snap` is authenticated + size-capped (5 MB body) since it may call a vision model |
 | Idempotency | None | `PayPal-Request-Id` on checkout. Dedupe webhooks on `event.id`. |
 | Buyer names | First name only in deals and ledger | Keep the rule in the API |
 
 ## 9. What is mocked vs real, env, open questions
 
-| Area | Status |
-| --- | --- |
-| Inventory CRUD, CSV, voice parse, validation | FE complete. Local (IndexedDB). |
-| Snap to add | Canned. Needs a vision backend. SerpAPI is the sketched option. |
-| Open/close, timers, live sync | FE complete. BroadcastChannel. |
-| Nearby, comps | Mock. |
-| Negotiation | Scripted lanes. |
-| Checkout and PayPal | Mock sheet. No PayPal calls. |
-| Ledger, insights | Derived from seeded history. |
-| Gamification | Partial, not modelled. |
-| AG Grid ledger | Not built. The FE uses a plain table. |
-| MapLibre | Not built. The FE uses Leaflet. |
+| Area | FE status | Backend status |
+| --- | --- | --- |
+| Auth (email + password + emailed OTP, JWT) | Mock OTP `1234`, phone-based **⚠ shape differs** | **Real** (`/v1/auth/*`), email OTP via Brevo when configured |
+| Shop create/update, status, open/close timers | FE complete (local) | **Real** (`/v1/shops/me/*`) |
+| Inventory CRUD | FE complete (IndexedDB) | **Real** as `/v1/shops/me/items` (owner view carries `floorCents`; buyer view strips it) |
+| Inventory CSV bulk, voice parse, `list_pct`/archive bulk | FE only | **Not in the API** (client-side; do not wait) |
+| Snap to add | Canned suggestions | **Real** — `POST /v1/inventory/snap`, inline data URL, vision model or built-in catalogue |
+| Nearby, comps | Mock | **Real** — `/v1/shops/nearby` (fresh `locationUpdatedAt`), `/v1/market/comps` |
+| Negotiation (basket) | Scripted lanes | **Real** — `/v1/baskets` + per-line SSE |
+| Checkout, capture, retry | Mock sheet | **Real** — sandbox-verified; **INR→USD** at checkout (§6) |
+| Ledger, insights, ask-the-ledger | Derived from seeded history | **Real** — `/v1/ledger`, `/summary`, `/ask`, `/v1/insights/buyer` |
+| Seller live deal feed | none | **Real** — ticket + SSE stream |
+| Gamification | Partial, not modelled | none (correct: cosmetic) |
+| AG Grid ledger | Not built. The FE uses a plain table. | endpoints ready |
+| MapLibre | Not built. The FE uses Leaflet. | — |
 
 **Env vars** (`.env.example`): `PUBLIC_USE_FIXTURE` (true for mock), `PUBLIC_API_BASE`, `PUBLIC_WS_BASE`,
 `PUBLIC_PAYPAL_CLIENT_ID` (sandbox, client-side only, never a secret).
 
 **Swap checklist**
-1. Set `PUBLIC_USE_FIXTURE=false`, `PUBLIC_API_BASE`, `PUBLIC_WS_BASE`.
+1. Set `PUBLIC_USE_FIXTURE=false`, `PUBLIC_API_BASE=https://api.13.238.88.61.nip.io`.
 2. Replace `idbStorage` reads with fetches. Keep the zustand shapes. Stores become caches.
 3. Route the endpoints in §4 through one client module (not built yet).
-4. Replace `BroadcastChannel` with the `shop.status` WS (§5).
-5. Extract `PaymentGateway` and implement it with PayPal JS SDK v6 (§6).
-6. Strip buyer-side `floorCents` (§8).
+4. Replace `BroadcastChannel` with `GET /v1/shops/status/stream` (SSE, §5).
+5. Point `PayFlow` at `POST /v1/baskets/:id/{checkout,capture,retry}` and render `deal` + `fxRate`
+   rather than treating `amountCents` as the haggled total (§6).
+6. Strip buyer-side `floorCents` (§8) — the API already does; the FE must stop rendering it.
+7. **Reconcile auth shape first:** the API signs up with `{email, password}` and verifies an emailed
+   6-digit code, while the FE mock uses `{phone, otp: '1234'}`. This is the one blocking mismatch.
 
-**Open questions for the BE dev**
-1. Is `lineItemId` per cart line OK, or do we need one negotiation per item?
-2. Who owns `shop.status` fan-out: the API or the negotiation worker?
-3. Vision: SerpAPI (Lens) or a vision model? Who pays for the calls?
-4. Comps: Channel3 or SerpAPI Shopping for `median/p25/p75`?
-5. Does the buyer's `rounds` preset shorten the scripted stream, or only change the LLM turn budget?
-6. Is the seller's `minCents` ever sent to the BE in plaintext, or only a commitment? (Plan §9.2.1 says sealed.)
+**Answers to the open questions (settled by the backend)**
+
+1. *`lineItemId` per cart line, or one negotiation per item?* — **Per basket line.** `POST /v1/baskets`
+   creates one `negotiations` row per line under one basket id; a line's id *is* its `lineItemId`, so the
+   event union and every route key off it unchanged (ADR 0006). The basket id is the stream capability.
+2. *Who owns `shop.status` fan-out?* — **The API** (`container.publish` → Redis `shop.status` channel),
+   independent of the worker.
+3. *Vision: SerpAPI Lens or a vision model?* — **Neither SerpAPI nor a hosted image store.** The image goes
+   inline as a data URL; an OpenAI-compatible vision model names the products when `LLM_*` is set, else a
+   built-in Indian-grocery catalogue matched on `hint`. SerpAPI *is* used for market comps (Q4).
+4. *Comps: Channel3 or SerpAPI?* — **Both, in order** (`Channel3 → SerpAPI → seeded`), configured by
+   `CHANNEL3_API_KEY` / `SERPAPI_API_KEY`. Currently unset on the live instance → seeded.
+5. *Does `rounds` shorten the stream or the LLM budget?* — **The LLM turn budget**; pacing is the worker's
+   `TURN_DELAY_MS`, and a human takeover supersedes any queued agent step.
+6. *Is `minCents` sent to the BE in plaintext or sealed?* — **Both, deliberately:** the shop's own
+   `floorCents` is stored and returned only to its owner (stripped for buyers), while the *negotiation*
+   limit is a per-line reserve drawn at basket creation and sealed with commit–reveal — the proof reveals
+   that reserve, never the standing floor (ADR 0006).

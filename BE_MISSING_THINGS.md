@@ -96,25 +96,46 @@ with dates).
 
 ### Backend — pending
 
-- [ ] **Hackathon sponsor integration: AG Grid Studio "Merchant Ledger" + "Ledger Agent" — the one real, concrete gap.** Found in `frontend/plan.md` (the original team plan — an earlier pass of this doc missed it). Planned as ✅ Core, has its own prize category ($5k/$2k/$1k×3), **0% built on either side today**. Backend needs a new `GET /v1/ledger/*` data-engine endpoint family plus a "Ledger Agent" tool-use loop using PayPal's `list_transactions`/`get_merchant_insights` reporting tools (via the already-available `@paypal/agent-toolkit`); frontend needs the AG Grid/AG Studio UI (boilerplate: `paypaldev/hackathon-paypal-ag-grid-boilerplate`) and to rewire the existing `LedgerAsk.tsx` fake-AI keyword matcher onto it. **Full endpoint contract, PayPal tool list, data model pointers, and a sponsor-by-sponsor status table (Channel3 done, Render/APIMatic are infra/dev-tooling decisions not code gaps, Elastic/Zapier are explicit optional stretch, Bryntum/KERNEL/Astropods explicitly skipped) are in "Hackathon sponsor integrations" below — detailed enough to start from directly.**
-- [ ] **Stock isn't reserved between checkout and capture.** Two buyers can both pay for the last unit; the overshoot is clamped to 0 server-side but nothing surfaces the oversell to either buyer or the vendor today. Real gap for anything beyond a single-buyer demo.
-- [ ] **Payment retries.** A denied or expired PayPal order can't be retried — the buyer has to start an entirely new basket. Low-effort, not yet built.
-- [ ] **Vision / snap-to-add** (`POST /v1/inventory/snap`-equivalent). No backend endpoint, no vision model integration, no image hosting story. Needs image hosting solved first (even a short-lived signed upload URL) before a vision model or SerpAPI Lens becomes usable. Frontend already has the UI shell and a manual-picker fallback; this is backend-shaped work (plus a hosting decision).
-- [ ] **Market comps provider still undecided.** Backend calls Channel3 (seeded fallback if no key); frontend is built and tested against SerpAPI. Nobody has picked one — `createMarketProvider` already has the right shape to add a second provider once someone decides. Related: the backend's money contracts default to `USD`/`$` while the whole product is ₹/INR — worth fixing regardless of the comps decision.
-- [ ] **Live vendor location while moving** (continuous pin movement on the map, not the one-time pin set this session). Zero-to-build on both sides — backend has no `lat`/`lng` columns at all; see "Live vendor location on the map" below for the full scope-out (schema, a `PATCH .../location` poll target, and — the real blocker — a consent/privacy decision before building continuous background location of a vendor's phone).
-- [ ] **Seller live incoming-offer feed** (`deal.incoming`/`deal.closed`, so Simple Mode's deals screen can sound/haptic-alert on a new offer). Architecturally awkward in the current model (the shop's *agent* haggles for the vendor — there's no human accept step to drive), and needs a stream-ticket design since `EventSource` can't send an auth header for a seller-private stream. Not started.
-- [ ] **Server-side ledger/insights endpoints** (`GET /v1/ledger?period=`, `GET /v1/insights/buyer`). Optional — the inputs now exist (`/v1/orders`, `/v1/shops/me/deals`), so the frontend's existing pure-function math (`computeLedger()`, `Insights.tsx`) could be pointed at them, but moving the computation server-side isn't required for the demo to be real.
-- [ ] **"Modern" inventory model** (cost/min price, low-stock threshold, archive, bulk edit, CSV import) — deliberately out of scope, different/bigger shape than the `shop_items` table that's live today. Only build if that richer vendor console is actually needed.
-- [ ] **Product decision, not code: PayPal + INR.** PayPal doesn't settle INR for merchants, so a real (non-mock) PayPal order in INR is expected to fail with `502`. Someone needs to decide: demo in USD, or convert at checkout. `ALLOW_MOCK_PAYMENTS=true` sidesteps this for local/demo use today.
-- [ ] **Product decision, not code: no-deal semantics for the standalone single-query demo** (`/v1/negotiations/*`, not the basket flow — baskets are already resolved, always converge). That older demo path can still end `no_zopa`. Low priority since the live buyer flow doesn't go through it.
-- [ ] Email delivery needs `SMTP_USER`/`SMTP_PASSWORD` set before a fresh deploy sends real OTP emails (falls back to console-logging the code otherwise) — an ops/config step, not missing code.
+Done this session (2026-10-18, PR **#5** `feat/backend-frontend-inr-fx-snap-feed`, deployed live at
+`https://api.13.238.88.61.nip.io`) — these were all pending above and are now built:
+`GET /v1/ledger` + `/v1/ledger/summary` + `POST /v1/ledger/ask` (AG Grid "Merchant Ledger"/"Ledger Agent"
+data side, `LedgerAsk` LLM fallback included), `GET /v1/insights/buyer`, stock reservations between
+checkout and capture (`0006_stock_reservations` + worker sweeper), payment retry
+(`POST /v1/baskets/:id/retry`), `POST /v1/inventory/snap` (inline data-URL, vision model or built-in
+catalogue — no image hosting needed), SerpAPI comps provider behind `createMarketProvider`
+(Channel3 → SerpAPI → seeded), **money defaults switched to INR** (`0008`), **INR→USD checkout**
+(`0009_payment_fx`, ADR 0008 — the "demo in USD vs convert at checkout" decision: convert),
+`PATCH /v1/shops/me/location` + `locationUpdatedAt` on nearby (`0007`), and the seller live deal feed
+(ticket + SSE, ADR 0007). Terraform vars plumbed for `SERPAPI_API_KEY`/`PAYPAL_SETTLEMENT_CURRENCY`/
+`FX_USD_PER_INR`.
+
+Still pending:
+
+- [ ] **SerpAPI/Channel3/LLM/SMTP keys are unset on the live instance** — ops/config, not missing code.
+  Comps fall back to seed, snap to the catalogue, OTP to console-logging. Set in `terraform.tfvars`
+  and re-apply.
+- [ ] **`ALLOW_MOCK_PAYPAL`/sandbox buyer approval** still needs a manual click for a real PayPal run.
+- [ ] **SerpAPI currency caveat:** SerpAPI results come back in the Google-locale currency (often USD),
+  which can mismatch INR shops once the key is live — normalise or filter by `currency` when enabling.
+- [ ] **"Modern" inventory model** (cost/min price, low-stock threshold, archive, bulk edit, CSV import)
+  — deliberately out of scope, different/bigger shape than the `shop_items` table that's live today.
+  Only build if that richer vendor console is actually needed.
+- [ ] **No-deal semantics for the standalone single-query demo** (`/v1/negotiations/*`, not the basket
+  flow — baskets always converge). Low priority since the live buyer flow doesn't go through it.
 
 ### Frontend — pending
 
-- [ ] **"Ask your ledger" is mislabeled as AI.** `LedgerAsk.tsx`'s `respond(q)` is local keyword-matching, not an LLM call, despite the copy implying natural language. Either stop implying it's AI (quick copy fix) or wire it to `packages/llm` (which already exists and is used for negotiation narration) for a real answer.
-- [ ] **"Modern" inventory console** (`AddItem.tsx`/`InventoryManager.tsx`) stays unwired to the backend, matching the backend-side item above — not worth doing one side without the other.
-- [ ] **Vision / snap-to-add UI** stays on its manual-picker fallback until the backend side (above) exists — nothing to build here until there's a real endpoint to call.
-- [ ] Voice narration and gamification (XP/streaks/badges) are frontend-only by design and were never meant to need backend work — listed here only so they aren't mistaken for an oversight; no action needed.
+- [ ] **Wiring the FE to the PR #5 endpoints** (ledger/insights/ask, snap, seller feed, retry,
+  INR→USD `deal`/`fxRate` display). `BasketCheckoutResult` now carries `deal` + `fxRate`;
+  `PayFlow` still doesn't render the conversion line.
+- [ ] **"Ask your ledger" is mislabeled as AI.** `LedgerAsk.tsx`'s `respond(q)` is local keyword-matching;
+  the backend now has a real `POST /v1/ledger/ask` — wire it (or reword the copy).
+- [ ] **"Modern" inventory console** (`AddItem.tsx`/`InventoryManager.tsx`) stays unwired to the backend,
+  matching the backend-side item above — not worth doing one side without the other.
+- [ ] Vision / snap-to-add UI stays on its manual-picker fallback — the backend endpoint now exists
+  (`POST /v1/inventory/snap`), so this is now unblocked FE wiring rather than a BE gap.
+- [ ] Voice narration and gamification (XP/streaks/badges) are frontend-only by design and were never
+  meant to need backend work — listed here only so they aren't mistaken for an oversight; no action needed.
 
 Everything else that used to be a frontend gap — basket haggle, checkout/
 payment, orders/receipts, discovery, stall status, session/role/logout — is
