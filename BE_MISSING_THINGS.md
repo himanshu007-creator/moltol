@@ -84,6 +84,43 @@ frontend still runs on its mocks** — wiring `stores/bazaar.ts`, `PayFlow.tsx`,
 "Backend pass, 2026-10-16" below for the exact contract, what is deliberately
 not done, and why.
 
+## Current pending work (2026-10-18) — what's actually left, FE or BE
+
+Everything below this line in the rest of the doc is the historical log (how
+we got here, what was fixed, what was decided). This section is the answer
+to "what's still pending, and on which side" as of today, pulled from that
+log so nobody has to re-read 400 lines to find it. An item only appears here
+if there is still something to build or decide — resolved items are left out
+(see the checklist sections further down for the full done/not-done history
+with dates).
+
+### Backend — pending
+
+- [ ] **Hackathon sponsor integration: AG Grid Studio "Merchant Ledger" + "Ledger Agent" — the one real, concrete gap.** Found in `frontend/plan.md` (the original team plan — an earlier pass of this doc missed it). Planned as ✅ Core, has its own prize category ($5k/$2k/$1k×3), **0% built on either side today**. Backend needs a new `GET /v1/ledger/*` data-engine endpoint family plus a "Ledger Agent" tool-use loop using PayPal's `list_transactions`/`get_merchant_insights` reporting tools (via the already-available `@paypal/agent-toolkit`); frontend needs the AG Grid/AG Studio UI (boilerplate: `paypaldev/hackathon-paypal-ag-grid-boilerplate`) and to rewire the existing `LedgerAsk.tsx` fake-AI keyword matcher onto it. **Full endpoint contract, PayPal tool list, data model pointers, and a sponsor-by-sponsor status table (Channel3 done, Render/APIMatic are infra/dev-tooling decisions not code gaps, Elastic/Zapier are explicit optional stretch, Bryntum/KERNEL/Astropods explicitly skipped) are in "Hackathon sponsor integrations" below — detailed enough to start from directly.**
+- [ ] **Stock isn't reserved between checkout and capture.** Two buyers can both pay for the last unit; the overshoot is clamped to 0 server-side but nothing surfaces the oversell to either buyer or the vendor today. Real gap for anything beyond a single-buyer demo.
+- [ ] **Payment retries.** A denied or expired PayPal order can't be retried — the buyer has to start an entirely new basket. Low-effort, not yet built.
+- [ ] **Vision / snap-to-add** (`POST /v1/inventory/snap`-equivalent). No backend endpoint, no vision model integration, no image hosting story. Needs image hosting solved first (even a short-lived signed upload URL) before a vision model or SerpAPI Lens becomes usable. Frontend already has the UI shell and a manual-picker fallback; this is backend-shaped work (plus a hosting decision).
+- [ ] **Market comps provider still undecided.** Backend calls Channel3 (seeded fallback if no key); frontend is built and tested against SerpAPI. Nobody has picked one — `createMarketProvider` already has the right shape to add a second provider once someone decides. Related: the backend's money contracts default to `USD`/`$` while the whole product is ₹/INR — worth fixing regardless of the comps decision.
+- [ ] **Live vendor location while moving** (continuous pin movement on the map, not the one-time pin set this session). Zero-to-build on both sides — backend has no `lat`/`lng` columns at all; see "Live vendor location on the map" below for the full scope-out (schema, a `PATCH .../location` poll target, and — the real blocker — a consent/privacy decision before building continuous background location of a vendor's phone).
+- [ ] **Seller live incoming-offer feed** (`deal.incoming`/`deal.closed`, so Simple Mode's deals screen can sound/haptic-alert on a new offer). Architecturally awkward in the current model (the shop's *agent* haggles for the vendor — there's no human accept step to drive), and needs a stream-ticket design since `EventSource` can't send an auth header for a seller-private stream. Not started.
+- [ ] **Server-side ledger/insights endpoints** (`GET /v1/ledger?period=`, `GET /v1/insights/buyer`). Optional — the inputs now exist (`/v1/orders`, `/v1/shops/me/deals`), so the frontend's existing pure-function math (`computeLedger()`, `Insights.tsx`) could be pointed at them, but moving the computation server-side isn't required for the demo to be real.
+- [ ] **"Modern" inventory model** (cost/min price, low-stock threshold, archive, bulk edit, CSV import) — deliberately out of scope, different/bigger shape than the `shop_items` table that's live today. Only build if that richer vendor console is actually needed.
+- [ ] **Product decision, not code: PayPal + INR.** PayPal doesn't settle INR for merchants, so a real (non-mock) PayPal order in INR is expected to fail with `502`. Someone needs to decide: demo in USD, or convert at checkout. `ALLOW_MOCK_PAYMENTS=true` sidesteps this for local/demo use today.
+- [ ] **Product decision, not code: no-deal semantics for the standalone single-query demo** (`/v1/negotiations/*`, not the basket flow — baskets are already resolved, always converge). That older demo path can still end `no_zopa`. Low priority since the live buyer flow doesn't go through it.
+- [ ] Email delivery needs `SMTP_USER`/`SMTP_PASSWORD` set before a fresh deploy sends real OTP emails (falls back to console-logging the code otherwise) — an ops/config step, not missing code.
+
+### Frontend — pending
+
+- [ ] **"Ask your ledger" is mislabeled as AI.** `LedgerAsk.tsx`'s `respond(q)` is local keyword-matching, not an LLM call, despite the copy implying natural language. Either stop implying it's AI (quick copy fix) or wire it to `packages/llm` (which already exists and is used for negotiation narration) for a real answer.
+- [ ] **"Modern" inventory console** (`AddItem.tsx`/`InventoryManager.tsx`) stays unwired to the backend, matching the backend-side item above — not worth doing one side without the other.
+- [ ] **Vision / snap-to-add UI** stays on its manual-picker fallback until the backend side (above) exists — nothing to build here until there's a real endpoint to call.
+- [ ] Voice narration and gamification (XP/streaks/badges) are frontend-only by design and were never meant to need backend work — listed here only so they aren't mistaken for an oversight; no action needed.
+
+Everything else that used to be a frontend gap — basket haggle, checkout/
+payment, orders/receipts, discovery, stall status, session/role/logout — is
+wired and verified end to end (see "What's wired now" item 3 and the
+checklist sections below for exactly what and how it was tested).
+
 ## Backend pass, 2026-10-16
 
 ### Built (all in `backend/`, contracts in `packages/contracts`)
@@ -142,8 +179,8 @@ A second, independent review of this pass found more issues. **Fixed before merg
 **Still open (deliberately left for later):**
 - **Payment retries:** a denied or expired PayPal order can't be retried; the buyer starts a new basket.
 - **Stock:** there is no reservation between checkout and capture. Two buyers can pay for the last unit, and the overshoot is clamped to 0 (`markBasketPaid` returns the oversold items, but nothing surfaces them yet).
-- **Capture before approval:** if the frontend calls capture before PayPal approval, PayPal may cache the `ORDER_NOT_APPROVED` answer for that `PayPal-Request-Id`. Only call capture after `onApprove`. A read-the-order-first step would remove the risk.
-- **Frontend totals:** the frontend computes line totals with a float multiply. Once wired, it should display the backend's `agreedLineCents`.
+- **Capture before approval:** if the frontend calls capture before PayPal approval, PayPal may cache the `ORDER_NOT_APPROVED` answer for that `PayPal-Request-Id`. Only call capture after `onApprove`. A read-the-order-first step would remove the risk. **Frontend side now respects this (2026-10-18):** `PayFlow.tsx`'s `finishCapture()` only runs immediately when `approveUrl` is `null` (the mock gateway, nothing to approve); when a real `approveUrl` comes back, capture waits for the buyer to click "I've approved it on PayPal" after the popup. The backend-side risk (no read-the-order-first guard) is unchanged.
+- **Frontend totals:** ~~the frontend computes line totals with a float multiply.~~ **Done (2026-10-18):** `stores/bazaar.ts` now takes `listCents`/totals from the basket response (`bl.listLineCents`, `agreedLineCents` via the reducer) for every real lane; the float multiply only remains for the local-simulation fallback, which has no backend numbers to take instead.
 - **Standalone negotiations** (`/v1/negotiations/*`, the original agent-vs-agent demo) are public by design. Their shop's floor is now derived from a secret salt rather than the public negotiation id.
 
 ### Backend bugs fixed along the way
@@ -181,6 +218,37 @@ source) as of this document's most recent update:
    wiring checkout or the negotiation engine before the basket/lane model gap
    is resolved would produce a demo that silently does the wrong thing, which
    is worse than not wiring it at all.
+3. **2026-10-18: the basket/lane gap above is now resolved — full basket
+   haggle, checkout, and orders are wired end to end.** PR #3
+   (`feat/backend-basket-haggle`) built the real thing this doc's item 2 was
+   waiting on: `POST /v1/baskets`, one SSE stream per basket
+   (`GET /v1/baskets/:id/events`), real takeover/offer/accept/accept-all,
+   `checkout`/`capture` against the mock-or-real PayPal gateway, `GET
+   /v1/orders`, `GET /v1/shops/nearby` + `GET /v1/shops/:id` for discovery,
+   `GET /v1/shops/status/stream` for live open/close, and the role/haggle-
+   preset/logout session endpoints. The frontend now drives all of it: when a
+   buyer picks a real shop (tagged `backendShopId`/`backendItemId` — seeded
+   demo shops are untouched and still haggle locally), `stores/bazaar.ts`
+   creates a real basket and the whole theatre (`BazaarTheatre.tsx`,
+   `HaggleChart.tsx`) is driven live by the SSE stream through the same
+   reducer (`lib/negotiation.ts`) the local simulation uses, now rewritten to
+   match the backend's event contracts byte-for-byte. `PayFlow.tsx` checks
+   out and captures for real; `stores/orders.ts`/`ReceiptView.tsx` render the
+   backend's own `Order`. Verified with a real, scripted end-to-end run
+   against `docker compose up -d --build` (not just read from source): seller
+   signup → shop + item + location → buyer signup → real shop shows up on
+   `/app/buy` → real item in the stall → live SSE-driven haggle → real
+   takeover/accept → checkout → capture → a real order with a verified proof
+   hash lands on `/app/orders` and the receipt. Two real frontend bugs were
+   found and fixed in the process (both were silent-wrong-data bugs, not
+   crashes): `StallGrid.tsx`/`CartSheet.tsx` could silently substitute an
+   unrelated seeded shop if a buyer hard-reloaded straight onto a stall or
+   cart URL before the discovery page's in-memory fetch had ever run (no
+   persistence on `useRealShops` — fixed with a direct-fetch fallback keyed
+   off the shop id looking like a real UUID); and the bill/receipt's "Sticker
+   price" row was reading the market median (`totalMarketCents`) instead of
+   the item's actual list price (`totalListCents`), showing the wrong
+   struck-through number.
 
 ## Frontend flow map (orientation for whoever picks up backend work next)
 
@@ -251,12 +319,15 @@ if a real natural-language ledger query is ever wanted, `packages/llm`
 already exists and is the natural place to wire it from.
 
 **Discovery / map** (`/app/buy`, `ShopDiscovery.tsx`, `LeafletMap.tsx`) —
-shop pins are static seed coordinates; the buyer's own position is real,
-continuously-tracked GPS (`watchPosition`), but nothing is ever sent to a
-backend. See "Live vendor location on the map" below for the live-position
-feature idea's full gap writeup, and "Explicitly NOT backend gaps" for why
-plain `GET /v1/shops/nearby` (static-but-real coordinates, no live movement)
-is a smaller, more tractable first step than full live tracking.
+**wired 2026-10-18**: real shops with a location set (`frontend/src/stores/realShops.ts`
+calls `GET /v1/shops/nearby`) now show up alongside the seeded pins, tagged
+`backendShopId`; a seller sets their real pin once via `StallHome.tsx`'s new
+"Set my location on the map" button (`PATCH /v1/shops/me`, one-time
+`getCurrentPosition()`, not `watchPosition` — see below, this is not the
+live-tracking feature). The buyer's own position is still real,
+continuously-tracked GPS (`watchPosition`) same as before. See "Live vendor
+location on the map" below for why continuous vendor-side movement is still
+a separate, not-yet-built feature.
 
 **Vendor console** (`/app/seller/inventory`, `AddItem.tsx`,
 `InventoryManager.tsx`) — the richer "Modern" inventory model (cost/min/list
@@ -296,7 +367,7 @@ bottom so they aren't mistaken for an oversight.
 - [x] **Done (2026-10-16), at `POST /v1/baskets`** (`itemId` instead of `sku`). Original note: `POST /v1/negotiations` per the handoff doc should accept `{shopId, lines: [{sku, qty}], scope, request, budgetCents?}` and return `{negotiationId, lines: [{lineItemId, sku}]}`. The backend's actual endpoint accepts `{query, persona, maxTotalCents, currency, roundsMax}` — a different shape entirely, with no `shopId` or `lines`.
 - [x] **Done (2026-10-16):** takeover / offer / accept per lane. Original note: Per-lane manual control — "take over a lane" and make a human offer mid-negotiation — is a real frontend feature (`frontend/src/stores/bazaar.ts` `takeOver()`, `humanOffer()`, tested in `tests/buyer-flow.spec.ts`). The backend's state machine and event vocabulary (`backend/packages/contracts/src/negotiation.ts` `STATE_TRANSITIONS`) have no state or event for a human taking control mid-run, and the handoff doc's proposed endpoints for it (`POST /v1/negotiations/:id/lines/:lineItemId/takeover`, `.../offer`) don't exist.
 - [x] **Done (2026-10-16):** `POST /v1/baskets/:id/accept-all`. Original note: "Accept all" (settle every still-live lane at once) is a frontend action (`bazaar.ts` `acceptAll()`) with a proposed `POST /v1/negotiations/:id/accept-all` endpoint (handoff §4) that doesn't exist backend-side.
-- [ ] Re-audited later session, specifically for a "bulk haggle" gap: confirmed there isn't a second, separate bulk mechanism to document — `acceptAll()` (`bazaar.ts:218-220`) iterates every non-settled lane and force-resolves each to its last known price, entirely client-side; `tests/buyer-flow.spec.ts`'s "haggle all" test exercises exactly this path end to end. It's the same local-simulation gap as the rest of this section, not a distinct feature with its own missing endpoint.
+- [x] **Stale, superseded 2026-10-18:** the note below described `acceptAll()` as always a local client-side force-resolve, with no distinct backend surface. That's no longer true — for a real basket it now calls the real `POST /v1/baskets/:id/accept-all` from the checklist row above; the local-only path stays for seeded demo shops with no `backendShopId`. Original note, now historical: Re-audited a prior session, specifically for a "bulk haggle" gap: confirmed there isn't a second, separate bulk mechanism to document — `acceptAll()` (`bazaar.ts:218-220`) iterates every non-settled lane and force-resolves each to its last known price, entirely client-side; `tests/buyer-flow.spec.ts`'s "haggle all" test exercises exactly this path end to end.
 
 ### Negotiation outcome semantics (no-deal vs. always-converge)
 
@@ -324,14 +395,14 @@ bottom so they aren't mistaken for an oversight.
 
 ### Payment (PayPal) — the closest-to-ready piece
 
-- [ ] The backend's PayPal integration is comparatively solid and close to what the frontend expects: `backend/packages/paypal/` has a real Orders v2 client with idempotent capture (`PayPal-Request-Id`), real webhook signature self-verification (`backend/packages/paypal/src/webhook.ts`), and the route sequence (`backend/apps/api/src/routes.ts`: `POST /v1/negotiations/:id/checkout` → `POST /v1/negotiations/:id/capture` → `POST /v1/webhooks/paypal`) matches the shape `frontend/docs/BE_HANDOFF.md` §6 describes (create → approve → capture → webhook-driven status).
-- [ ] The frontend's `PayFlow.tsx` is still a fully local mock today — it fabricates an order id (`'order-' + Date.now().toString(36)`), fakes `order_created → approved → captured` with `setTimeout`s, and never calls PayPal or any backend. The handoff doc's proposed `PaymentGateway` interface (`createOrder`, `approve`, `capture`, `subscribe(status)`) is explicitly flagged there as *"not yet extracted (open item)"* — that extraction still hasn't happened.
-- [ ] Endpoint path mismatch: handoff doc's proposed `POST /v1/checkout` (flat) vs. the backend's actual `POST /v1/negotiations/:id/checkout` (nested under the negotiation) — a small shape difference, but the FE's eventual `PaymentGateway` adapter needs to target the real path, not the doc's guess.
-- [x] **Done (2026-10-16):** one PayPal order per basket (`/v1/baskets/:id/checkout` → `/capture`). Original note: Since the negotiation model itself needs to change (one deal → a basket of lines, above), the checkout/capture flow built against "one negotiation = one payment" will need to either checkout per-lane or be redesigned to checkout a whole basket in one PayPal order referencing multiple negotiation lines — not addressed anywhere yet.
+- [x] The backend's PayPal integration is solid: `backend/packages/paypal/` has a real Orders v2 client with idempotent capture (`PayPal-Request-Id`) and real webhook signature self-verification (`backend/packages/paypal/src/webhook.ts`). (The route path in this bullet's original note, `POST /v1/negotiations/:id/checkout`, was the pre-basket shape and is stale — the real, now-wired route is `POST /v1/baskets/:id/checkout` → `/capture`, per the row below.)
+- [x] **Done (2026-10-18):** `PayFlow.tsx` now calls the real `/v1/baskets/:id/checkout` → `/capture` for a real basket (local-mock `setTimeout` path kept, unchanged, for seeded demo shops) — see "What's wired now" item 3. The old `PaymentGateway`-interface extraction idea is moot; `pay()` just branches on `bz.basketId` instead.
+- [x] (moot, see above) Endpoint path mismatch note — resolved by construction, since the frontend targets the real `/v1/baskets/:id/checkout` path directly rather than the handoff doc's guessed `/v1/checkout`.
+- [x] **Done (2026-10-16, frontend-wired 2026-10-18):** one PayPal order per basket (`/v1/baskets/:id/checkout` → `/capture`). Original note: Since the negotiation model itself needs to change (one deal → a basket of lines, above), the checkout/capture flow built against "one negotiation = one payment" will need to either checkout per-lane or be redesigned to checkout a whole basket in one PayPal order referencing multiple negotiation lines — not addressed anywhere yet.
 
 ### Transport: SSE vs WebSocket
 
-- [x] **Settled in principle — SSE, not WebSocket.** The backend already streams negotiation events over SSE (`GET /v1/negotiations/:id/events`, `backend/apps/api/src/routes.ts`) and should keep doing so — it's the right transport (one-directional, simpler than WS) for this. The frontend's `openSocket()` (`lib/ws.ts`) was converted from `WebSocket` to `EventSource` and proven working mid-session, but it belonged to the single-item pre-basket negotiation path (`stores/negotiation.ts`, `HaggleTheatre.tsx`) — confirmed orphaned (unreachable from any live page, superseded by `stores/bazaar.ts`'s basket model) by the later frontend audit, and deleted along with the rest of that dead subtree. **Nothing currently consumes SSE on the frontend as a result** — this is back to an open item, not a closed one, but a cheap one: whoever wires the real basket/lane negotiation (see "The negotiation primitive" below) should re-create an `EventSource` consumer with the same shape against `bazaar.ts`'s lanes (one stream per lane, or one multiplexed stream keyed by `lineItemId`, depending on how that endpoint ends up shaped) — the pattern is proven, just needs to target the model that's actually live now.
+- [x] **Settled in principle, and now actually consumed — SSE, not WebSocket.** The backend streams negotiation events over SSE, now at the real `GET /v1/baskets/:id/events` (one stream, every lane, routed by `event.negotiationId`). `frontend/src/lib/basketStream.ts` (new, 2026-10-18) is the live `EventSource` consumer — `stores/bazaar.ts`'s `connectStream()` opens it once per real basket and feeds every frame through the same reducer the local simulation uses. The original note below is now out of date (the old single-item `openSocket()`/`HaggleTheatre.tsx` subtree it described was already deleted as orphaned); see "What's wired now" item 3 for the full picture.
 - [x] **Done (2026-10-16):** SSE `GET /v1/shops/status/stream`. Original note: Shop-status fan-out (a vendor opening/closing their stall, live to every buyer tab) is still only a `BroadcastChannel` within one browser on the frontend (`frontend/src/stores/venue.ts`) — the backend has no equivalent channel of any kind, SSE or otherwise, since it has no shop-status concept yet (see "Shops, vendors, and inventory" above). Unrelated to the SSE/WS question itself, which is now settled.
 
 ### Security rules specified but not enforced server-side
@@ -371,21 +442,86 @@ zero-to-build gap, not a wiring gap:
 
 ### Hackathon sponsor integrations
 
-Searched the whole repo (every `.md` file, root to leaf) for any mention of
-sponsors, tracks, prizes, or a suggested-integrations list, plus named
-greps for common sponsor-category products (Auth0, Clerk, Supabase, Twilio,
-ElevenLabs, Vapi, extra Anthropic/Claude usage beyond the existing
-`packages/llm`, Vercel, Sentry, Datadog, WorkOS, Stytch, Algolia, Pinecone,
-Weaviate). **Found nothing.** The word "hackathon" appears only in this
-project's own self-description ("Hackathon build", "a hackathon that can't
-pay a telecom provider") — no sponsor names, tracks, or prize categories
-anywhere in the repo. The only named third-party products anywhere in either
-codebase are the ones already known and wired or tracked above: PayPal,
-Channel3, Cartesia (voice), SerpAPI, and Brevo (this session, email OTP). If
-there's an actual sponsor-integration list for this hackathon, it lives
-outside this repo (a submission form, a pitch deck) — there's nothing here
-to cross-reference it against, so that check would need to happen
-elsewhere, against whatever that external list says.
+**Correction, 2026-10-18: the sponsor list does exist in the repo — found in
+`frontend/plan.md`** (`# MolTol — PayPal AI Hackathon Master Plan`, §4
+"Sponsor tools and how we use them" + §0's TL;DR table). An earlier pass of
+this doc searched and reported finding nothing; that search missed this file.
+`plan.md` is the original team planning doc (both FE and BE scope were
+planned from it) — it is the authoritative source for what was actually
+promised, not a guess. Full sponsor decision table, verbatim from
+`frontend/plan.md:123-134`:
+
+| Sponsor | What it is | Prize | Free access | Intended use | Decision | **Status today** |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Channel3** | Normalized product data API, 100M+ products / 25k+ retailers. Has an MCP server. | $1.5k | Key via `trychannel3.com/developers`, 20,000 credits, promo `PAYPAL-HACKATHON-2026` | Market anchor: buyer agent opens with a real comparable price; receipt shows "vs market." | ✅ Core | **✅ Done.** Backend calls it (`backend/packages/market/src/channel3.ts`, `CHANNEL3_API_KEY`), with a seeded fallback when no key is set. |
+| **AG Grid (AG Studio)** | Embedded analytics (dashboards/charts/grid) + the **Studio Agent Framework**. | $5k / $2k / $1k×3 | 45-day trial, boilerplate `paypaldev/hackathon-paypal-ag-grid-boilerplate` | **Merchant Ledger**: custom widgets (margin kept, fairness score, deal funnel) + a natural-language **"Ledger Agent"** ("show deals under floor this week") built on PayPal's `list_transactions`/`get_merchant_insights` reporting tools. | ✅ Core | **❌ Not built, either side.** This is the real, concrete sponsor gap — full spec below. |
+| **Render** | Cloud platform + **Workflows** (orchestrate many concurrent tasks). | Credits $1k/$750/$500 | $50 credits | Hosting (web/API/Postgres/KV) + each negotiation as a Workflow task, so many stalls haggle concurrently. | ✅ Core | **Not evaluated** — this is a deploy-target/infra decision, not application code; the stack currently runs on plain `docker compose` locally (see `backend/docker-compose.yml`, `backend/docs/adr/0005-hosting.md`). Whoever handles deployment should decide whether to actually host on Render for the submission (the credits + prize require it) or note honestly that it wasn't used. |
+| **APIMatic** | Context Plugins / SDKs / docs generated from API contracts. | $1k×3 + 6mo Business | Free plan via sign-up | Feed the PayPal Context Plugin into the coding agent while building the PayPal gateway; optionally generate an SDK/docs portal from our own OpenAPI contract. | ✅ Dev-time | **Not a runtime integration** — it's a coding-tool aid, nothing to build into the product itself. No code gap; only relevant if the team wants to claim it for the prize, which would mean actually using the plugin during development and saying so in the writeup. |
+| **Elastic** | Elasticsearch, hybrid/vector search, Agent Builder. | none listed | 14-day trial + 30-day extension, or self-host | Stretch: "deal memory" — index past deals, agents retrieve similar past negotiations to calibrate opening offers. | 🟡 P2 stretch | Not built. Optional, explicitly a stretch goal in the plan, not required for the core submission. |
+| **Zapier MCP** | Actions across 9,000+ apps, incl. PayPal. | none listed | 14-day trial | Stretch: a Zap pings the shopkeeper on Slack/WhatsApp when a deal closes. | 🟡 P2 stretch | Not built. Same as above — optional polish. |
+| **Bryntum** | Gantt/Scheduler/Calendar. | $1k×3 | 45-day trial | Considered for a "Standing Orders" delivery calendar. | ⚪ Skip (explicit, in the plan) | Not built, by design — plan's own reasoning: "would add a fourth UI library and dilute the story." No action needed. |
+| **KERNEL** | Browser infra for agents. | none | $50 credits | — | ⚪ Skip (explicit) | Not needed. |
+| **Astropods** | Agent deploy platform. | none | free tier | — | ⚪ Skip (explicit, Render used instead) | Not needed. |
+| **Postman** | API platform. | none | free | Use PayPal's public collection for sandbox exploration; publish our own collection. | ⚪ Dev-only | Not done, low priority — publishing a Postman collection for the API is a nice-to-have, not a sponsor prize requirement (no prize listed for Postman in the plan). |
+
+#### The one real, concrete gap: AG Grid Studio "Merchant Ledger" + "Ledger Agent" — **not built on either side**
+
+This was planned as a **✅ Core** sponsor integration (not optional), with its
+own dedicated screen (`plan.md` §8.5 screen 7: "Merchant Ledger (AG Studio):
+KPIs and widgets, with the 'Ask your ledger' agent") and its own prize
+category (AG Grid: $5k/$2k/$1k×3). It is 100% unbuilt today — what exists
+instead is a **look-alike, not the real thing**:
+`frontend/src/components/react/LedgerAsk.tsx` (UI copy literally says "Ask
+your ledger") does local keyword-matching against a local array, not AG
+Grid's Studio Agent Framework and not a real LLM call (already flagged
+above, under "Frontend — pending"); `frontend/src/lib/ledger.ts`'s
+`computeLedger()` is a 321-line pure function running entirely client-side
+over local IndexedDB data, not an AG Grid data engine. **Nothing in either
+codebase imports `ag-grid-*`, calls PayPal's reporting tools, or references
+AG Studio.** Here is the exact, full spec straight from `plan.md`, for
+whoever picks this up:
+
+**1. What it needs from PayPal (backend, via the Agent Toolkit — `plan.md:523`):**
+- `list_transactions` — the merchant's transaction history from PayPal itself (not just this app's own `orders`/`negotiations` tables) — real settled-payment data, the point being the ledger is grounded in PayPal's own records.
+- `get_merchant_insights` — PayPal's own business-intelligence metrics.
+- `list_disputes` — feeds a disputes widget if time allows; lower priority than the two above.
+- These are already-available tools in `@paypal/agent-toolkit` (npm) / the PayPal MCP server (`npx -y @paypal/mcp --tools=all`, or in-process via the toolkit) — no new PayPal-side setup beyond what checkout already needs, just enabling the `reporting` tool group (`configuration.actions.reporting = { list: true }` style, per the toolkit's `configuration.actions` object described in `plan.md` §3.1).
+
+**2. What the backend needs to build (new):**
+- `GET /v1/ledger/*` — a small family of data-engine endpoints for AG Studio to bind to (the exact sub-routes are AG Studio's own data-source contract; start from the AG Grid boilerplate linked below to see the expected shape — don't hand-design this blind). At minimum: a deals/orders feed shaped for a grid (reuse the existing `shop_items`/`orders`/`negotiations` tables this project already has — `GET /v1/shops/me/deals` already built this session is the closest existing analog and could likely be extended/reused rather than built from scratch), plus whatever aggregate/KPI shape AG Studio's widgets expect (margin kept vs. list, fairness-score distribution, deal funnel — see `plan.md` §7.2 item 6 and §8.5 screen 7 for the exact KPI list).
+- A "Ledger Agent" backend tool-use loop: takes a natural-language question ("show deals under floor this week"), calls the PayPal reporting tools above (plus/instead of the local ledger data), and returns something AG Studio's Studio Agent Framework can render as a widget. `backend/packages/llm` already exists and is wired for negotiation narration — this is the natural place to add the ledger-agent tool loop, per this doc's existing note on "Ask your ledger" under "More missing APIs" above.
+- Auth/scoping: ledger data is seller-private (a vendor's own deals/margins), so these routes need the same owner-only auth pattern already used for `GET /v1/shops/me` and `GET /v1/shops/me/deals` — not public.
+
+**3. What the frontend needs to build (new, blocked on the backend above):**
+- Install `ag-grid-*` + AG Studio per the official boilerplate: **`paypaldev/hackathon-paypal-ag-grid-boilerplate`** (GitHub) — `plan.md` explicitly says to review this boilerplate before starting (§12.6 "Immediate next actions": *"Review `paypaldev/hackathon-paypal-ag-grid-boilerplate` now. Delay starting the AG trial until about Oct 20"* — the 45-day trial license timing matters for whether it's still live at judging).
+- A new Merchant Ledger screen/route (`plan.md` lists it as its own key screen, #7 of 8) replacing/augmenting today's `/app/seller/ledger` page, themed to match the app's existing design tokens (`plan.md:276`: *"Custom theme and widgets to match the design system (the sponsor prize judges polish)"*).
+- Rewire `LedgerAsk.tsx`'s `respond(q)` from local keyword-matching to actually calling the new Ledger Agent backend endpoint.
+- `computeLedger()`'s local KPI math could stay as the no-backend fallback (same dual-path pattern as everything else wired this session), with the AG Studio widgets as the real, backend-grounded version once a seller has a real shop + real PayPal transactions.
+
+**4. Why this wasn't built yet:** every other backend pass and frontend
+wiring pass this project has gone through was prioritized around the
+product's structural correctness first (real auth → real shop/inventory →
+real basket/negotiation/payment/orders — all now done and verified, see
+"What's wired now" above). AG Grid Studio is additive polish + a specific
+sponsor prize, not something the core buyer/seller flow depends on, so it
+was correctly deferred — but it is a real, counted gap against the plan's
+own stated commitments (✅ Core, not optional) and its own prize category,
+and it's the one piece of "sponsor integration" work that's actually
+concrete and actionable, as opposed to the other sponsors above (Render:
+infra decision; APIMatic: dev-tooling, not app code; Elastic/Zapier:
+explicitly optional stretch; Bryntum/KERNEL/Astropods: explicitly skipped
+in the plan itself).
+
+**Reference links from `plan.md`:**
+- AG Grid boilerplate: `https://github.com/paypaldev/hackathon-paypal-ag-grid-boilerplate`
+- PayPal Agent Toolkit (npm `@paypal/agent-toolkit`, MCP via `@paypal/mcp`) README on GitHub for the exact `reporting` tool definitions (`list_transactions`, `get_merchant_insights`).
+- `plan.md` itself, sections: §0 TL;DR, §4 "Sponsor tools and how we use them", §7.2 item 6, §8.5 screen 7, §9.2.2 (`GET /v1/ledger/*` in the original API contract table), §9.4 Table (`list_transactions`, `get_merchant_insights`, `list_disputes` → "Feeds AG Studio and the Ledger Agent"), §12 (week-by-week plan: AG Grid trial work was scheduled for **Week 3, Oct 20–26**, and the final checklist's launch-readiness list literally includes *"AG Studio Merchant Ledger with custom widgets and the Ledger Agent"* as a submission-readiness item).
+
+Everything else searched for (Auth0, Clerk, Supabase, Twilio, ElevenLabs,
+Vapi, extra Anthropic/Claude usage beyond `packages/llm`, Vercel, Sentry,
+Datadog, WorkOS, Stytch, Algolia, Pinecone, Weaviate) still turns up nothing
+in either codebase — confirmed not relevant to this hackathon's actual
+sponsor list per `plan.md`.
 
 ### Explicitly NOT backend gaps (frontend-only, said here so they aren't mistaken for missing backend work)
 

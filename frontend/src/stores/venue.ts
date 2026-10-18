@@ -92,6 +92,33 @@ export function startVenueClock() {
   clock = setInterval(() => useVenue.getState().tick(), 1000);
 }
 
+let statusStream: EventSource | null = null;
+/**
+ * Live `shop.status` fan-out for real backend shops (`GET
+ * /v1/shops/status/stream`), merged into the same `stalls` map the seeded
+ * demo shops already use via `BroadcastChannel` — `isOpen()`/`splitNearby()`
+ * need no changes. Additive and silent if the backend isn't configured.
+ * Start once per page, alongside `startVenueClock()`.
+ */
+export function startShopStatusStream() {
+  if (statusStream || typeof window === 'undefined') return;
+  const base = import.meta.env.PUBLIC_BACKEND_BASE as string | undefined;
+  if (!base) return;
+  const source = new EventSource(`${base}/v1/shops/status/stream`);
+  source.onmessage = (ev) => {
+    try {
+      const frame = JSON.parse(ev.data as string) as { t: 'shop.status'; shopId: string; status: StallStatus };
+      if (frame.t !== 'shop.status') return;
+      useVenue.setState((s) => ({ stalls: { ...s.stalls, [frame.shopId]: frame.status } }));
+    } catch {
+      /* ignore malformed frame */
+    }
+  };
+  // No manual close/retry on error — EventSource reconnects natively using
+  // the backend's own `retry:` hint, same as the basket stream.
+  statusStream = source;
+}
+
 /** Open right now for buyers. Missing entries count as open. */
 export function isOpen(stalls: StallMap, shopId: string): boolean {
   return stalls[shopId]?.open !== false;

@@ -6,6 +6,7 @@ import { SHOPS, type Shop } from '@/lib/mock/seeds';
 import { toBuyerItems, type StockItem } from '@/lib/inventory';
 import { clampQty, type UnitId } from '@/lib/units';
 import { DEMO_SLOT_ID } from '@/stores/venue';
+import { useRealShops } from '@/stores/realShops';
 
 /** The demo seller's stall. Its buyer-facing products come from this store. */
 
@@ -157,5 +158,6 @@ export function liveShops(items: StockItem[]): Shop[] {
 
 export function useLiveShops(): Shop[] {
   const items = useInventory((s) => s.items);
-  return useMemo(() => liveShops(items), [items]);
+  const real = useRealShops((s) => s.shops);
+  return useMemo(() => [...liveShops(items), ...real], [items, real]);
 }

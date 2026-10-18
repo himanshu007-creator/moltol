@@ -1,4 +1,7 @@
+import { useState } from 'react';
 import { useSimple } from '@/stores/simple';
+import { useSession } from '@/stores/session';
+import { setShopStatus, updateShopLocation } from '@/lib/backend';
 import { s, nativeRupaye } from '@/lib/simple/strings';
 import { useVenue, DEMO_SLOT_ID } from '@/stores/venue';
 import { cn } from '@/lib/cn';
@@ -11,7 +14,35 @@ export default function StallHome() {
   const { stallName, stallEmoji, haggle, todayEarningsCents, language } = useSimple();
   const open = useVenue((s) => s.stalls[DEMO_SLOT_ID]?.open !== false);
   const toggle = useVenue((s) => s.toggle);
+  const token = useSession((st) => st.token);
   const dict = s(language);
+  const [locating, setLocating] = useState<'idle' | 'working' | 'done' | 'error'>('idle');
+
+  const toggleStall = () => {
+    toggle(DEMO_SLOT_ID);
+    // Additive: a seller with a real backend shop also flips it for real, so
+    // buyers' `/v1/shops/nearby` and the live status stream agree with what
+    // the seller sees here.
+    if (token) void setShopStatus(token, { open: !open }).catch(() => {});
+  };
+
+  // A one-time pin, not live tracking (see BE_MISSING_THINGS.md's "Live vendor
+  // location" — continuous movement is a separate, not-yet-built feature and
+  // a real privacy decision). Without this, a real shop never has a location
+  // and so never appears on a buyer's `/v1/shops/nearby`.
+  const setMyLocation = () => {
+    if (!token || !('geolocation' in navigator)) return;
+    setLocating('working');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        void updateShopLocation(token, { lat: pos.coords.latitude, lng: pos.coords.longitude })
+          .then(() => setLocating('done'))
+          .catch(() => setLocating('error'));
+      },
+      () => setLocating('error'),
+      { enableHighAccuracy: true, timeout: 8000 },
+    );
+  };
 
   const tiles = [
     { icon: '📷', label: dict.u.scanTitle, sub: dict.u.scanHint, to: '/app/seller/simple/scan', tone: 'bg-indigo/15' },
@@ -37,7 +68,7 @@ export default function StallHome() {
         role="switch"
         aria-checked={open}
         aria-label={open ? dict.u.stallCloseCta : dict.u.stallOpenCta}
-        onClick={() => toggle(DEMO_SLOT_ID)}
+        onClick={toggleStall}
         className={cn(
           'surface flex min-h-24 w-full items-center gap-4 p-5 text-left transition active:scale-[0.99]',
           open ? 'border-teal/50 bg-teal/10' : 'border-chili/50 bg-chili/10',
@@ -53,6 +84,24 @@ export default function StallHome() {
           <span className="block text-sm text-ink-muted">{open ? dict.u.stallOpenHint : dict.u.stallClosedHint}</span>
         </span>
       </button>
+
+      {token && (
+        <button
+          type="button"
+          onClick={setMyLocation}
+          disabled={locating === 'working'}
+          className="surface flex min-h-11 items-center justify-center gap-2 px-4 text-sm font-semibold text-ink-muted transition active:scale-[0.99] disabled:opacity-60"
+        >
+          <span aria-hidden="true">📍</span>
+          {locating === 'done'
+            ? 'Location set — buyers nearby can find you'
+            : locating === 'working'
+              ? 'Finding you…'
+              : locating === 'error'
+                ? "Couldn't get your location — try again"
+                : 'Set my location on the map'}
+        </button>
+      )}
 
       {haggle.step === 'offer' && (
         <a href="/app/seller/simple/haggle" className="surface-solid flex items-center justify-between gap-4 p-5 active:scale-[0.99]">
