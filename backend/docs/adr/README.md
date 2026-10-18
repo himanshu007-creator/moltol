@@ -11,3 +11,5 @@ few paragraphs; the code is the detail.
 | 0004 | [Append-only, ordered event log](./0004-event-log.md)                |
 | 0005 | [AWS (EC2) deploy](./0005-hosting.md)                                |
 | 0006 | [Baskets: one negotiation per line, real limits](./0006-basket-lines.md) |
+| 0007 | [Seller live feed: a short-lived stream ticket](./0007-seller-deal-stream-ticket.md) |
+| 0008 | [Checkout settles in the gateway's currency (INR → USD)](./0008-checkout-settlement-currency.md) |

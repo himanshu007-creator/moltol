@@ -12,7 +12,9 @@ const BASE = import.meta.env.PUBLIC_BACKEND_BASE as string | undefined;
 async function get<T>(path: string): Promise<T | null> {
   if (!BASE) return null;
   try {
-    const res = await fetch(`${BASE}${path}`, { signal: AbortSignal.timeout(4000) });
+    const res = await fetch(`${BASE}${path}`, {
+      signal: AbortSignal.timeout(4000),
+    });
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch {
@@ -27,9 +29,9 @@ export interface BackendHealth {
 
 /** True when a real backend answers /healthz. Used to show/hide the "live backend" badge. */
 export async function backendHealth(): Promise<BackendHealth> {
-  const h = await get<{ status: string }>('/healthz');
-  if (!h || h.status !== 'ok') return { ok: false };
-  const v = await get<{ version: string }>('/v1/version');
+  const h = await get<{ status: string }>("/healthz");
+  if (!h || h.status !== "ok") return { ok: false };
+  const v = await get<{ version: string }>("/v1/version");
   return { ok: true, version: v?.version };
 }
 
@@ -42,9 +44,14 @@ export interface BackendMarketRange {
 }
 
 /** Live market comps from the real backend (Channel3-backed, or its seeded fallback). */
-export async function backendComps(query: string, currency = 'INR'): Promise<BackendMarketRange | null> {
+export async function backendComps(
+  query: string,
+  currency = "INR",
+): Promise<BackendMarketRange | null> {
   if (!query.trim()) return null;
-  return get<BackendMarketRange>(`/v1/market/comps?query=${encodeURIComponent(query)}&currency=${currency}`);
+  return get<BackendMarketRange>(
+    `/v1/market/comps?query=${encodeURIComponent(query)}&currency=${currency}`,
+  );
 }
 
 /* ---------------------------------------------------------------------------
@@ -60,7 +67,12 @@ export class BackendAuthError extends Error {
   detail?: string;
   secondsRemaining?: number;
 
-  constructor(status: number, title: string, detail?: string, secondsRemaining?: number) {
+  constructor(
+    status: number,
+    title: string,
+    detail?: string,
+    secondsRemaining?: number,
+  ) {
     super(detail || title);
     this.status = status;
     this.title = title;
@@ -69,44 +81,84 @@ export class BackendAuthError extends Error {
   }
 }
 
-async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-  if (!BASE) throw new BackendAuthError(0, 'backend_not_configured', 'No backend is configured for this build.');
+async function call<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  if (!BASE)
+    throw new BackendAuthError(
+      0,
+      "backend_not_configured",
+      "No backend is configured for this build.",
+    );
   let res: Response;
   try {
     res = await fetch(`${BASE}${path}`, {
       method,
-      headers: { 'content-type': 'application/json' },
+      headers: { "content-type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(8000),
     });
   } catch {
-    throw new BackendAuthError(0, 'network_error', "Couldn't reach the backend. Check your connection.");
+    throw new BackendAuthError(
+      0,
+      "network_error",
+      "Couldn't reach the backend. Check your connection.",
+    );
   }
   if (res.status === 204) return undefined as T;
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new BackendAuthError(res.status, json.title ?? 'error', json.detail, json.secondsRemaining);
+    throw new BackendAuthError(
+      res.status,
+      json.title ?? "error",
+      json.detail,
+      json.secondsRemaining,
+    );
   }
   return json as T;
 }
 
-async function authedCall<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
-  if (!BASE) throw new BackendAuthError(0, 'backend_not_configured', 'No backend is configured for this build.');
+async function authedCall<T>(
+  method: string,
+  path: string,
+  token: string,
+  body?: unknown,
+): Promise<T> {
+  if (!BASE)
+    throw new BackendAuthError(
+      0,
+      "backend_not_configured",
+      "No backend is configured for this build.",
+    );
   let res: Response;
   try {
     res = await fetch(`${BASE}${path}`, {
       method,
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`,
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(8000),
     });
   } catch {
-    throw new BackendAuthError(0, 'network_error', "Couldn't reach the backend. Check your connection.");
+    throw new BackendAuthError(
+      0,
+      "network_error",
+      "Couldn't reach the backend. Check your connection.",
+    );
   }
   if (res.status === 204) return undefined as T;
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new BackendAuthError(res.status, json.title ?? 'error', json.detail, json.secondsRemaining);
+    throw new BackendAuthError(
+      res.status,
+      json.title ?? "error",
+      json.detail,
+      json.secondsRemaining,
+    );
   }
   return json as T;
 }
@@ -128,25 +180,36 @@ export interface SignupResult {
 }
 
 export function signup(email: string, password: string): Promise<SignupResult> {
-  return call('POST', '/v1/auth/signup', { email, password });
+  return call("POST", "/v1/auth/signup", { email, password });
 }
-export function verifySignupOtp(email: string, code: string): Promise<AuthSession> {
-  return call('POST', '/v1/auth/otp/verify', { email, code });
+export function verifySignupOtp(
+  email: string,
+  code: string,
+): Promise<AuthSession> {
+  return call("POST", "/v1/auth/otp/verify", { email, code });
 }
-export function resendSignupOtp(email: string): Promise<{ ok: boolean; resendCooldownSeconds: number }> {
-  return call('POST', '/v1/auth/otp/resend', { email });
+export function resendSignupOtp(
+  email: string,
+): Promise<{ ok: boolean; resendCooldownSeconds: number }> {
+  return call("POST", "/v1/auth/otp/resend", { email });
 }
 export function login(email: string, password: string): Promise<AuthSession> {
-  return call('POST', '/v1/auth/login', { email, password });
+  return call("POST", "/v1/auth/login", { email, password });
 }
-export function forgotPassword(email: string): Promise<{ ok: boolean; message: string }> {
-  return call('POST', '/v1/auth/password/forgot', { email });
+export function forgotPassword(
+  email: string,
+): Promise<{ ok: boolean; message: string }> {
+  return call("POST", "/v1/auth/password/forgot", { email });
 }
-export function resetPassword(email: string, code: string, newPassword: string): Promise<AuthSession> {
-  return call('POST', '/v1/auth/password/reset', { email, code, newPassword });
+export function resetPassword(
+  email: string,
+  code: string,
+  newPassword: string,
+): Promise<AuthSession> {
+  return call("POST", "/v1/auth/password/reset", { email, code, newPassword });
 }
 export function me(token: string): Promise<AuthUser> {
-  return authedCall('GET', '/v1/me', token);
+  return authedCall("GET", "/v1/me", token);
 }
 
 export interface Shop {
@@ -169,28 +232,48 @@ export interface ShopItem {
   unit: string | null;
   hindiName: string | null;
 }
-export type PublicShopItem = Omit<ShopItem, 'floorCents'>;
+export type PublicShopItem = Omit<ShopItem, "floorCents">;
 
-export function createShop(token: string, name: string, emoji: string): Promise<Shop> {
-  return authedCall('POST', '/v1/shops/me', token, { name, emoji });
+export function createShop(
+  token: string,
+  name: string,
+  emoji: string,
+): Promise<Shop> {
+  return authedCall("POST", "/v1/shops/me", token, { name, emoji });
 }
-export function getMyShop(token: string): Promise<Shop & { items: ShopItem[] }> {
-  return authedCall('GET', '/v1/shops/me', token);
+export function getMyShop(
+  token: string,
+): Promise<Shop & { items: ShopItem[] }> {
+  return authedCall("GET", "/v1/shops/me", token);
 }
 export function addShopItem(
   token: string,
-  item: { name: string; emoji?: string; sellCents: number; floorCents: number; quantity?: number; unit?: string; hindiName?: string },
+  item: {
+    name: string;
+    emoji?: string;
+    sellCents: number;
+    floorCents: number;
+    quantity?: number;
+    unit?: string;
+    hindiName?: string;
+  },
 ): Promise<ShopItem> {
-  return authedCall('POST', '/v1/shops/me/items', token, item);
+  return authedCall("POST", "/v1/shops/me/items", token, item);
 }
-export function updateShopItem(token: string, itemId: string, patch: Partial<ShopItem>): Promise<ShopItem> {
-  return authedCall('PATCH', `/v1/shops/me/items/${itemId}`, token, patch);
+export function updateShopItem(
+  token: string,
+  itemId: string,
+  patch: Partial<ShopItem>,
+): Promise<ShopItem> {
+  return authedCall("PATCH", `/v1/shops/me/items/${itemId}`, token, patch);
 }
 export function deleteShopItem(token: string, itemId: string): Promise<void> {
-  return authedCall('DELETE', `/v1/shops/me/items/${itemId}`, token);
+  return authedCall("DELETE", `/v1/shops/me/items/${itemId}`, token);
 }
-export function getPublicShop(shopId: string): Promise<Shop & { items: PublicShopItem[] }> {
-  return call('GET', `/v1/shops/${shopId}`);
+export function getPublicShop(
+  shopId: string,
+): Promise<Shop & { items: PublicShopItem[] }> {
+  return call("GET", `/v1/shops/${shopId}`);
 }
 
 /* ---------------------------------------------------------------------------
@@ -198,20 +281,22 @@ export function getPublicShop(shopId: string): Promise<Shop & { items: PublicSho
  * `backend/packages/contracts/src/basket.ts`, which these types mirror.
  * ------------------------------------------------------------------------- */
 
-export type HaggleTone = 'polite' | 'playful' | 'firm';
-export type HagglePreset = 'quick' | 'balanced' | 'hard';
+export type HaggleTone = "polite" | "playful" | "firm";
+export type HagglePreset = "quick" | "balanced" | "hard";
 export type NegotiationLineState =
-  | 'init'
-  | 'committed'
-  | 'negotiating'
-  | 'agreed'
-  | 'payment_pending'
-  | 'paid'
-  | 'revealed'
-  | 'no_deal'
-  | 'failed';
-export type BasketState = 'negotiating' | 'settled' | 'payment_pending' | 'paid' | 'failed';
-export type BasketPaymentStatus = 'order_created' | 'approved' | 'captured' | 'failed' | 'refunded';
+  | "init"
+  | "committed"
+  | "negotiating"
+  | "agreed"
+  | "payment_pending"
+  | "paid"
+  | "revealed"
+  | "no_deal"
+  | "failed";
+export type BasketState =
+  "negotiating" | "settled" | "payment_pending" | "paid" | "failed";
+export type BasketPaymentStatus =
+  "order_created" | "approved" | "captured" | "failed" | "refunded";
 
 export interface BasketLine {
   lineItemId: string;
@@ -264,6 +349,8 @@ export interface BasketCheckoutResult {
   approveUrl: string | null;
   amountCents: number;
   currency: string;
+  deal: { amountCents: number; currency: string };
+  fxRate: number;
 }
 export interface ProofResult {
   negotiationId: string;
@@ -276,7 +363,12 @@ export interface ProofResult {
   buyerCommit: string;
   shopCommit: string;
   reasons: string[];
-  reveal: { buyerLimitCents: number; buyerSalt: string; shopFloorCents: number; shopSalt: string };
+  reveal: {
+    buyerLimitCents: number;
+    buyerSalt: string;
+    shopFloorCents: number;
+    shopSalt: string;
+  };
 }
 export interface BasketCaptureResult {
   basketId: string;
@@ -287,30 +379,69 @@ export interface BasketCaptureResult {
 
 export function createBasket(
   token: string,
-  input: { shopId: string; lines: Array<{ itemId: string; qty: number }>; request?: { preset?: HagglePreset; rounds?: number; tone?: HaggleTone } },
+  input: {
+    shopId: string;
+    lines: Array<{ itemId: string; qty: number }>;
+    request?: { preset?: HagglePreset; rounds?: number; tone?: HaggleTone };
+  },
 ): Promise<Basket> {
-  return authedCall('POST', '/v1/baskets', token, input);
+  return authedCall("POST", "/v1/baskets", token, input);
 }
 export function getBasket(token: string, basketId: string): Promise<Basket> {
-  return authedCall('GET', `/v1/baskets/${basketId}`, token);
+  return authedCall("GET", `/v1/baskets/${basketId}`, token);
 }
-export function takeoverLine(token: string, basketId: string, lineId: string): Promise<LineActionResult> {
-  return authedCall('POST', `/v1/baskets/${basketId}/lines/${lineId}/takeover`, token);
+export function takeoverLine(
+  token: string,
+  basketId: string,
+  lineId: string,
+): Promise<LineActionResult> {
+  return authedCall(
+    "POST",
+    `/v1/baskets/${basketId}/lines/${lineId}/takeover`,
+    token,
+  );
 }
-export function offerLine(token: string, basketId: string, lineId: string, priceCents: number): Promise<LineActionResult> {
-  return authedCall('POST', `/v1/baskets/${basketId}/lines/${lineId}/offer`, token, { priceCents });
+export function offerLine(
+  token: string,
+  basketId: string,
+  lineId: string,
+  priceCents: number,
+): Promise<LineActionResult> {
+  return authedCall(
+    "POST",
+    `/v1/baskets/${basketId}/lines/${lineId}/offer`,
+    token,
+    { priceCents },
+  );
 }
-export function acceptLine(token: string, basketId: string, lineId: string): Promise<LineActionResult> {
-  return authedCall('POST', `/v1/baskets/${basketId}/lines/${lineId}/accept`, token);
+export function acceptLine(
+  token: string,
+  basketId: string,
+  lineId: string,
+): Promise<LineActionResult> {
+  return authedCall(
+    "POST",
+    `/v1/baskets/${basketId}/lines/${lineId}/accept`,
+    token,
+  );
 }
-export function acceptAllLines(token: string, basketId: string): Promise<AcceptAllResult> {
-  return authedCall('POST', `/v1/baskets/${basketId}/accept-all`, token);
+export function acceptAllLines(
+  token: string,
+  basketId: string,
+): Promise<AcceptAllResult> {
+  return authedCall("POST", `/v1/baskets/${basketId}/accept-all`, token);
 }
-export function checkoutBasket(token: string, basketId: string): Promise<BasketCheckoutResult> {
-  return authedCall('POST', `/v1/baskets/${basketId}/checkout`, token);
+export function checkoutBasket(
+  token: string,
+  basketId: string,
+): Promise<BasketCheckoutResult> {
+  return authedCall("POST", `/v1/baskets/${basketId}/checkout`, token);
 }
-export function captureBasket(token: string, basketId: string): Promise<BasketCaptureResult> {
-  return authedCall('POST', `/v1/baskets/${basketId}/capture`, token);
+export function captureBasket(
+  token: string,
+  basketId: string,
+): Promise<BasketCaptureResult> {
+  return authedCall("POST", `/v1/baskets/${basketId}/capture`, token);
 }
 
 /* ---------------------------------------------------------------------------
@@ -347,10 +478,10 @@ export interface BackendOrder {
 }
 
 export function listOrders(token: string): Promise<BackendOrder[]> {
-  return authedCall('GET', '/v1/orders', token);
+  return authedCall("GET", "/v1/orders", token);
 }
 export function getOrder(token: string, id: string): Promise<BackendOrder> {
-  return authedCall('GET', `/v1/orders/${id}`, token);
+  return authedCall("GET", `/v1/orders/${id}`, token);
 }
 
 /* ---------------------------------------------------------------------------
@@ -374,17 +505,27 @@ export interface NearbyShop {
   itemCount: number;
 }
 
-export function nearbyShops(lat: number, lng: number, radiusM = 3000): Promise<NearbyShop[]> {
-  return call('GET', `/v1/shops/nearby?lat=${lat}&lng=${lng}&radiusM=${radiusM}`);
+export function nearbyShops(
+  lat: number,
+  lng: number,
+  radiusM = 3000,
+): Promise<NearbyShop[]> {
+  return call(
+    "GET",
+    `/v1/shops/nearby?lat=${lat}&lng=${lng}&radiusM=${radiusM}`,
+  );
 }
-export function updateShopLocation(token: string, location: { lat: number; lng: number } | null): Promise<Shop> {
-  return authedCall('PATCH', '/v1/shops/me', token, { location });
+export function updateShopLocation(
+  token: string,
+  location: { lat: number; lng: number } | null,
+): Promise<Shop> {
+  return authedCall("PATCH", "/v1/shops/me", token, { location });
 }
 export function setShopStatus(
   token: string,
   input: { open: boolean; closeInMin?: number; reopenInMin?: number },
 ): Promise<{ status: ShopStatus }> {
-  return authedCall('PUT', '/v1/shops/me/status', token, input);
+  return authedCall("PUT", "/v1/shops/me/status", token, input);
 }
 
 export interface ShopDeal {
@@ -401,15 +542,22 @@ export interface ShopDeal {
   listCents: number;
   currency: string;
 }
-export function getShopDeals(token: string, since?: string): Promise<ShopDeal[]> {
-  return authedCall('GET', `/v1/shops/me/deals${since ? `?since=${encodeURIComponent(since)}` : ''}`, token);
+export function getShopDeals(
+  token: string,
+  since?: string,
+): Promise<ShopDeal[]> {
+  return authedCall(
+    "GET",
+    `/v1/shops/me/deals${since ? `?since=${encodeURIComponent(since)}` : ""}`,
+    token,
+  );
 }
 
 /* ---------------------------------------------------------------------------
  * Session / preferences.
  * ------------------------------------------------------------------------- */
 
-export type Role = 'buyer' | 'seller';
+export type Role = "buyer" | "seller";
 
 export interface Me {
   id: string;
@@ -421,14 +569,20 @@ export interface Me {
 }
 
 export function getMe(token: string): Promise<Me> {
-  return authedCall('GET', '/v1/me', token);
+  return authedCall("GET", "/v1/me", token);
 }
-export function setRole(token: string, activeRole: Role): Promise<{ activeRole: Role }> {
-  return authedCall('PATCH', '/v1/me/role', token, { activeRole });
+export function setRole(
+  token: string,
+  activeRole: Role,
+): Promise<{ activeRole: Role }> {
+  return authedCall("PATCH", "/v1/me/role", token, { activeRole });
 }
-export function setHagglePreset(token: string, preset: HagglePreset): Promise<{ preset: HagglePreset }> {
-  return authedCall('PUT', '/v1/me/preferences/haggle', token, { preset });
+export function setHagglePreset(
+  token: string,
+  preset: HagglePreset,
+): Promise<{ preset: HagglePreset }> {
+  return authedCall("PUT", "/v1/me/preferences/haggle", token, { preset });
 }
 export function logout(token: string): Promise<void> {
-  return authedCall('POST', '/v1/auth/logout', token);
+  return authedCall("POST", "/v1/auth/logout", token);
 }

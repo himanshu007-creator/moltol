@@ -13,7 +13,7 @@ export type Currency = z.infer<typeof CurrencySchema>;
  */
 export const MoneySchema = z.object({
   amountCents: z.number().int().nonnegative(),
-  currency: CurrencySchema.default("USD"),
+  currency: CurrencySchema.default("INR"),
 });
 export type Money = z.infer<typeof MoneySchema>;
 

@@ -10,6 +10,8 @@ import { createContainer, type Container } from "./container";
 import { createQueueRunner } from "./enqueue";
 import type { Env } from "./env";
 import { sendProblem } from "./http";
+import { registerLedgerRoutes } from "./ledger-routes";
+import { registerSnapRoutes } from "./snap-routes";
 import { registerOrderRoutes } from "./order-routes";
 import { registerCoreRoutes } from "./routes";
 import { registerShopRoutes } from "./shop-routes";
@@ -100,6 +102,8 @@ export async function buildApp(options: {
   await registerShopRoutes(app, container);
   await registerBasketRoutes(app, container, runner);
   await registerOrderRoutes(app, container);
+  await registerLedgerRoutes(app, container);
+  await registerSnapRoutes(app, container);
 
   return { app, container, runner };
 }

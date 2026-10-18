@@ -31,6 +31,9 @@ enable_https = true
 # llm_api_key          = ""
 # llm_model            = ""
 # channel3_api_key     = ""
+# serpapi_api_key      = ""
+# paypal_settlement_currency = "USD"   # shops still price in INR
+# fx_usd_per_inr       = "0.012"       # set the live rate before a real run
 # seal_key             = ""  # openssl rand -hex 32
 
 # ---- OTP email (optional; without it codes only appear in the API logs) -------

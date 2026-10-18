@@ -57,7 +57,12 @@ export function shopView(row: ShopRow): Shop {
 }
 
 export function nearbyView(row: ShopRow, distanceM: number, itemCount: number): NearbyShop {
-  return { ...shopView(row), distanceM: Math.round(distanceM), itemCount };
+  return {
+    ...shopView(row),
+    distanceM: Math.round(distanceM),
+    itemCount,
+    locationUpdatedAt: row.locationUpdatedAt ? row.locationUpdatedAt.getTime() : null,
+  };
 }
 
 export function shopItemView(row: ShopItemRow): ShopItem {
@@ -205,6 +210,32 @@ export function orderView(
       : null,
     proofVerified: allProved && ownProofs.every((p) => p.verified === "true"),
     paymentStatus: payment.status as PaymentStatus,
+  };
+}
+
+/**
+ * The checkout quote for a stored payment: the gateway charge (`amountCents` /
+ * `currency`) plus the deal total in the shop's currency and the rate used. Rows
+ * from before FX support fall back to the charge as the deal at rate 1.
+ */
+export function paymentQuote(payment: PaymentRow): {
+  paypalOrderId: string;
+  approveUrl: string | null;
+  amountCents: number;
+  currency: string;
+  deal: { amountCents: number; currency: string };
+  fxRate: number;
+} {
+  return {
+    paypalOrderId: payment.paypalOrderId,
+    approveUrl: payment.approveUrl,
+    amountCents: payment.amountCents,
+    currency: payment.currency,
+    deal: {
+      amountCents: payment.dealAmountCents ?? payment.amountCents,
+      currency: payment.dealCurrency ?? payment.currency,
+    },
+    fxRate: payment.fxRate !== null ? Number(payment.fxRate) : 1,
   };
 }
 

@@ -8,6 +8,13 @@ export const LocationSchema = z.object({ lat: LatSchema, lng: LngSchema });
 export type Location = z.infer<typeof LocationSchema>;
 
 /**
+ * PATCH /v1/shops/me/location — the vendor's device pushes its moving pin while
+ * the stall is open. Deliberately tiny so a 3-second poll stays cheap.
+ */
+export const UpdateShopLocationSchema = LocationSchema;
+export type UpdateShopLocation = z.infer<typeof UpdateShopLocationSchema>;
+
+/**
  * Stall status, the same shape as the frontend's `StallStatus`: epoch-ms timers.
  * `closeAt` is a scheduled close while open; `reopenAt` a scheduled reopen while
  * closed. A timer that has come due is already applied when the API returns it.
@@ -79,6 +86,8 @@ export type NearbyQuery = z.infer<typeof NearbyQuerySchema>;
 export const NearbyShopSchema = ShopSchema.extend({
   distanceM: z.number().int().nonnegative(),
   itemCount: z.number().int().nonnegative(),
+  /** Epoch ms the pin last moved; how stale a "live" vendor location is. */
+  locationUpdatedAt: z.number().int().nullable(),
 });
 export type NearbyShop = z.infer<typeof NearbyShopSchema>;
 

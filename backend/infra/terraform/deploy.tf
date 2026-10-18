@@ -19,6 +19,9 @@ locals {
     llm_api_key          = var.llm_api_key
     llm_model            = var.llm_model
     channel3_api_key     = var.channel3_api_key
+    serpapi_api_key      = var.serpapi_api_key
+    settlement_currency  = var.paypal_settlement_currency
+    fx_usd_per_inr       = var.fx_usd_per_inr
     seal_key             = var.seal_key
     jwt_secret           = random_password.jwt.result
     smtp_user            = var.smtp_user

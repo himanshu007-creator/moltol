@@ -4,6 +4,8 @@ import { createLlmTurnGenerator, type LlmConfig } from "./provider";
 
 export * from "./fallback";
 export * from "./provider";
+export * from "./ledger-agent";
+export * from "./vision";
 
 /** Use the configured provider when present, otherwise the offline narrator. */
 export function createTurnGenerator(config: Partial<LlmConfig> = {}): TurnGenerator {

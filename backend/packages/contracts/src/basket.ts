@@ -139,8 +139,13 @@ export const BasketCheckoutResultSchema = z.object({
   paypalOrderId: z.string(),
   /** PayPal approval URL; null for the offline mock gateway (capture directly). */
   approveUrl: z.string().nullable(),
+  /** What the gateway charges, in `currency` (PayPal's currency, e.g. USD). */
   amountCents: z.number().int().positive(),
   currency: CurrencySchema,
+  /** The same total in the shop's own currency (e.g. INR) — what was haggled. */
+  deal: z.object({ amountCents: z.number().int().nonnegative(), currency: CurrencySchema }),
+  /** Deal minor units → charged minor units (1 when the gateway takes the shop currency). */
+  fxRate: z.number().positive(),
 });
 export type BasketCheckoutResult = z.infer<typeof BasketCheckoutResultSchema>;
 

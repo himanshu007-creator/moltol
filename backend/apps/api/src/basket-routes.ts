@@ -1,5 +1,5 @@
 import { randomInt, randomUUID } from "node:crypto";
-import { PRICE_ROUNDING_CENTS } from "@moltol/config";
+import { dealChannel, PRICE_ROUNDING_CENTS } from "@moltol/config";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   CreateBasketSchema,
@@ -8,6 +8,7 @@ import {
   isValidQty,
   lineCents,
   roundQty,
+  type DealFeedEvent,
   type HaggleTone,
   type Persona,
   type Side,
@@ -22,12 +23,13 @@ import {
 } from "@moltol/engine";
 import { commit, newSalt, toHex } from "@moltol/policy";
 import type { BasketRow, NewBasketLine, SealedRecord } from "@moltol/store";
+import { createCheckoutForDeal } from "./checkout";
 import type { Container } from "./container";
 import { invalidBody, isUuid, sendKnownError, sendProblem } from "./http";
 import { applyCapture, settleCapture } from "./payments";
 import { revealProof } from "./proof";
 import { resumeSeqs, streamNegotiations } from "./sse";
-import { basketView, hasDeal, isTerminal, lineView, shopStatus } from "./views";
+import { basketView, hasDeal, isTerminal, lineView, paymentQuote, shopStatus } from "./views";
 
 /** How fast the buyer's agent concedes, from the tone the buyer picked. */
 const TONE_PERSONA: Record<HaggleTone, Persona> = {
@@ -180,6 +182,7 @@ export async function registerBasketRoutes(
           openCents: item.sellCents,
           // Nobody haggles up from the sticker: the buyer's ceiling is the list price.
           maxCents: item.sellCents,
+          floorCents: item.floorCents,
           sealed: [
             seal(id, "buyer", shop.currency, item.sellCents, null),
             seal(
@@ -204,6 +207,23 @@ export async function registerBasketRoutes(
         shopPersona: shop.persona as Persona,
         lines,
       });
+      // Tell the vendor's dashboard a new offer just landed (their private feed).
+      const incoming: DealFeedEvent = {
+        t: "deal.incoming",
+        shopId: shop.id,
+        basketId,
+        ts: new Date().toISOString(),
+        currency: shop.currency,
+        totalCents: lines.reduce((sum, l) => sum + lineCents(l.openCents, l.qty), 0),
+        lines: lines.map((l) => ({
+          name: l.name,
+          qty: l.qty,
+          unit: l.unit,
+          listCents: l.openCents,
+        })),
+      };
+      await redis.publish(dealChannel(shop.id), JSON.stringify(incoming));
+
       for (const line of lines) await runner.enqueue(line.id);
       return reply.code(201).send(await view((await store.getBasket(basketId))!));
     },
@@ -338,13 +358,7 @@ export async function registerBasketRoutes(
       // A checkout interrupted after the order was stored finishes its locking here.
       if (existing.status === "order_created")
         await lockForPayment(basket.id, existing.paypalOrderId);
-      return reply.send({
-        basketId: basket.id,
-        paypalOrderId: existing.paypalOrderId,
-        approveUrl: existing.approveUrl,
-        amountCents: existing.amountCents,
-        currency: existing.currency,
-      });
+      return reply.send({ basketId: basket.id, ...paymentQuote(existing) });
     }
 
     const lines = await store.listBasketLines(basket.id);
@@ -359,30 +373,62 @@ export async function registerBasketRoutes(
     );
     if (amountCents <= 0) return sendProblem(reply, 422, "amount_too_small");
 
-    let order: { orderId: string; approveUrl: string | null };
+    // Hold the stock for this basket before asking for money, so the last unit
+    // cannot be sold twice. The hold is released on failure or after its TTL.
+    const hold = await store.reserveStock(
+      basket.id,
+      closed
+        .filter((l) => l.shopItemId)
+        .map((l) => ({ shopItemId: l.shopItemId!, qty: l.qty ?? 1 })),
+    );
+    if (!hold.ok) {
+      const names = new Map(
+        (await store.getShopItems(hold.shortage.map((s) => s.shopItemId))).map((i) => [
+          i.id,
+          i.name,
+        ]),
+      );
+      return sendProblem(
+        reply,
+        409,
+        "insufficient_stock",
+        `Not enough stock: ${hold.shortage
+          .map((s) => `${names.get(s.shopItemId) ?? "an item"} (${s.available} left)`)
+          .join(", ")}.`,
+      );
+    }
+
+    let quote: Awaited<ReturnType<typeof createCheckoutForDeal>>;
     try {
-      order = await checkout.createCheckout({
+      quote = await createCheckoutForDeal(container, {
         referenceId: basket.id,
         amountCents,
         currency: basket.currency,
       });
     } catch (err) {
+      await store.releaseReservations(basket.id);
       return sendKnownError(reply, err);
     }
+    const { order, charged } = quote;
     await store.createPayment({
       basketId: basket.id,
       paypalOrderId: order.orderId,
       approveUrl: order.approveUrl,
-      amountCents,
-      currency: basket.currency,
+      amountCents: charged.amountCents,
+      currency: charged.currency,
+      dealAmountCents: amountCents,
+      dealCurrency: basket.currency,
+      fxRate: charged.fxRate,
     });
     await lockForPayment(basket.id, order.orderId);
     return reply.code(201).send({
       basketId: basket.id,
       paypalOrderId: order.orderId,
       approveUrl: order.approveUrl,
-      amountCents,
-      currency: basket.currency,
+      amountCents: charged.amountCents,
+      currency: charged.currency,
+      deal: { amountCents, currency: basket.currency },
+      fxRate: charged.fxRate,
     });
   });
 
@@ -419,6 +465,80 @@ export async function registerBasketRoutes(
       status: result.outcome === "pending" ? "approved" : "captured",
       captureId: capture.captureId,
       proofs: result.proofs,
+    });
+  });
+
+  /**
+   * Retry a denied or expired order: issue a fresh PayPal order for the same
+   * agreed lines and re-lock them for checkout. The buyer keeps the prices they
+   * haggled — no need to start over. Idempotent-ish: each call makes a new order.
+   */
+  app.post<BasketParams>("/v1/baskets/:id/retry", auth, async (req, reply) => {
+    const basket = await ownBasket(req, reply);
+    if (!basket) return reply;
+    const payment = await store.getPaymentByBasket(basket.id);
+    if (!payment) return sendProblem(reply, 409, "no_checkout");
+    if (payment.status === "captured") return sendProblem(reply, 409, "already_paid");
+    if (basket.state !== "failed" && basket.state !== "payment_pending") {
+      return sendProblem(reply, 409, "not_retryable");
+    }
+
+    const closed = (await store.listBasketLines(basket.id)).filter(hasDeal);
+    if (closed.length === 0) return sendProblem(reply, 409, "nothing_agreed");
+    const amountCents = closed.reduce(
+      (sum, l) => sum + lineCents(l.agreedPriceCents!, l.qty ?? 1),
+      0,
+    );
+    if (amountCents <= 0) return sendProblem(reply, 422, "amount_too_small");
+
+    const hold = await store.reserveStock(
+      basket.id,
+      closed
+        .filter((l) => l.shopItemId)
+        .map((l) => ({ shopItemId: l.shopItemId!, qty: l.qty ?? 1 })),
+    );
+    if (!hold.ok)
+      return sendProblem(reply, 409, "insufficient_stock", "Not enough stock to retry.");
+
+    let quote: Awaited<ReturnType<typeof createCheckoutForDeal>>;
+    try {
+      quote = await createCheckoutForDeal(container, {
+        referenceId: basket.id,
+        amountCents,
+        currency: basket.currency,
+      });
+    } catch (err) {
+      await store.releaseReservations(basket.id);
+      return sendKnownError(reply, err);
+    }
+    const { order, charged } = quote;
+    await store.replaceBasketOrder(basket.id, {
+      paypalOrderId: order.orderId,
+      approveUrl: order.approveUrl,
+      amountCents: charged.amountCents,
+      currency: charged.currency,
+      dealAmountCents: amountCents,
+      dealCurrency: basket.currency,
+      fxRate: charged.fxRate,
+    });
+    await store.transitionBasket(basket.id, ["failed", "payment_pending"], "payment_pending");
+    for (const line of closed) {
+      if (line.state === "payment_pending") continue;
+      const event = await store.appendSystemEvent(
+        line.id,
+        { t: "payment.status", status: "order_created", paypalOrderId: order.orderId },
+        { transition: { from: ["failed"], to: "payment_pending", required: true } },
+      );
+      if (event) await container.publish(event);
+    }
+    return reply.code(201).send({
+      basketId: basket.id,
+      paypalOrderId: order.orderId,
+      approveUrl: order.approveUrl,
+      amountCents: charged.amountCents,
+      currency: charged.currency,
+      deal: { amountCents, currency: basket.currency },
+      fxRate: charged.fxRate,
     });
   });
 
