@@ -36,6 +36,41 @@
       "when": 1792097182130,
       "tag": "0004_basket_haggle",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792312808468,
+      "tag": "0005_negotiation_floor",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792313000000,
+      "tag": "0006_stock_reservations",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792314000000,
+      "tag": "0007_shop_location_freshness",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792316228339,
+      "tag": "0008_inr_currency_default",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792316881446,
+      "tag": "0009_payment_fx",
+      "breakpoints": true
     }
   ]
 }

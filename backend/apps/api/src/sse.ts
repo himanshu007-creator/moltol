@@ -1,5 +1,5 @@
 import type { OutgoingHttpHeaders } from "node:http";
-import { eventChannel, SHOP_STATUS_CHANNEL, SSE_HEARTBEAT_MS } from "@moltol/config";
+import { dealChannel, eventChannel, SHOP_STATUS_CHANNEL, SSE_HEARTBEAT_MS } from "@moltol/config";
 import type { NegotiationEvent } from "@moltol/contracts";
 import type { MoltolStore } from "@moltol/store";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -136,6 +136,29 @@ export function resumeSeqs(
     return new Array<number>(count).fill(-1);
   }
   return seqs;
+}
+
+/**
+ * A single shop's private deal feed (seller-only). The connection is authorized
+ * by a short-lived ticket in the query string, since an EventSource cannot send
+ * an Authorization header; the caller verifies the ticket before calling this.
+ */
+export async function streamShopDeals(
+  _req: FastifyRequest,
+  reply: FastifyReply,
+  redis: Redis,
+  shopId: string,
+): Promise<void> {
+  const subscriber = redis.duplicate();
+  const isClosed = keepAlive(reply, () => {
+    subscriber.removeAllListeners("message");
+    void subscriber.quit().catch(() => {});
+  });
+  subscriber.on("message", (_channel: string, message: string) => {
+    if (!isClosed()) reply.raw.write(`data: ${message}\n\n`);
+  });
+  await subscriber.subscribe(dealChannel(shopId));
+  openSse(reply);
 }
 
 /** `shop.status` fan-out: every open/close change, to every stall-map client. */

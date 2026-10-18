@@ -12,7 +12,7 @@
  * model-generated imagery is used.
  */
 
-import type { ItemId, Locale } from '@/lib/simple/strings';
+import type { ItemId, Locale } from "@/lib/simple/strings";
 
 export interface VegSpec {
   /** token the model is told to answer with, e.g. 'potato' */
@@ -34,24 +34,24 @@ const V = (key: string, id: ItemId, en: string, emoji: string): VegSpec => ({
 });
 
 export const VEG_CATALOG: VegSpec[] = [
-  V('potato', 'potato', 'Potato', '🥔'),
-  V('onion', 'onion', 'Onion', '🧅'),
-  V('tomato', 'tomato', 'Tomato', '🍅'),
-  V('carrot', 'carrot', 'Carrot', '🥕'),
-  V('cauliflower', 'cauliflower', 'Cauliflower', '🥦'),
-  V('cabbage', 'cabbage', 'Cabbage', '🥬'),
-  V('brinjal', 'brinjal', 'Brinjal', '🍆'),
-  V('cucumber', 'cucumber', 'Cucumber', '🥒'),
-  V('capsicum', 'capsicum', 'Capsicum', '🫑'),
-  V('okra', 'okra', 'Okra (bhindi)', '🫛'),
-  V('spinach', 'spinach', 'Spinach', '🥬'),
-  V('garlic', 'garlic', 'Garlic', '🧄'),
-  V('ginger', 'ginger', 'Ginger', '🫚'),
-  V('peas', 'peas', 'Green peas', '🫛'),
-  V('banana', 'banana', 'Banana', '🍌'),
-  V('apple', 'apple', 'Apple', '🍎'),
-  V('orange', 'orange', 'Orange', '🍊'),
-  V('mango', 'mango', 'Mango', '🥭'),
+  V("potato", "potato", "Potato", "🥔"),
+  V("onion", "onion", "Onion", "🧅"),
+  V("tomato", "tomato", "Tomato", "🍅"),
+  V("carrot", "carrot", "Carrot", "🥕"),
+  V("cauliflower", "cauliflower", "Cauliflower", "🥦"),
+  V("cabbage", "cabbage", "Cabbage", "🥬"),
+  V("brinjal", "brinjal", "Brinjal", "🍆"),
+  V("cucumber", "cucumber", "Cucumber", "🥒"),
+  V("capsicum", "capsicum", "Capsicum", "🫑"),
+  V("okra", "okra", "Okra (bhindi)", "🫛"),
+  V("spinach", "spinach", "Spinach", "🥬"),
+  V("garlic", "garlic", "Garlic", "🧄"),
+  V("ginger", "ginger", "Ginger", "🫚"),
+  V("peas", "peas", "Green peas", "🫛"),
+  V("banana", "banana", "Banana", "🍌"),
+  V("apple", "apple", "Apple", "🍎"),
+  V("orange", "orange", "Orange", "🍊"),
+  V("mango", "mango", "Mango", "🥭"),
 ];
 
 const BY_KEY = new Map(VEG_CATALOG.map((v) => [v.key, v]));
@@ -82,8 +82,8 @@ export function allowedKeys(): string[] {
  */
 export function parseVegGuess(text: string): VegSpec | null {
   if (!text) return null;
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
   if (start === -1 || end === -1 || end < start) return null;
   let parsed: unknown;
   try {
@@ -91,10 +91,10 @@ export function parseVegGuess(text: string): VegSpec | null {
   } catch {
     return null;
   }
-  if (!parsed || typeof parsed !== 'object') return null;
+  if (!parsed || typeof parsed !== "object") return null;
   const name = (parsed as { name?: unknown }).name;
-  if (typeof name !== 'string') return null;
+  if (typeof name !== "string") return null;
   const key = name.trim().toLowerCase();
-  if (!key || key === 'unknown') return null;
+  if (!key || key === "unknown") return null;
   return BY_KEY.get(key) ?? null;
 }

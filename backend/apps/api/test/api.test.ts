@@ -388,9 +388,12 @@ describe.skipIf(!DB || !REDIS)("api against postgres + redis", () => {
       headers: bearer(buyer.token),
     });
     expect(checkout.statusCode).toBe(201);
+    // The shop prices in INR; PayPal is charged in USD at FX_USD_PER_INR (default 0.012).
     expect(checkout.json()).toMatchObject({
-      amountCents: amount,
-      currency: "INR",
+      amountCents: Math.round(amount * 0.012),
+      currency: "USD",
+      deal: { amountCents: amount, currency: "INR" },
+      fxRate: 0.012,
       paypalOrderId: `MOCK-${basketId}`,
     });
     const again = await inject({

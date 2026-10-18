@@ -2,9 +2,11 @@ import {
   DEFAULT_TURN_DELAY_MS,
   NEGOTIATION_QUEUE,
   NEGOTIATION_TIMEOUT_MS,
+  RESERVATION_TTL_MS,
+  dealChannel,
   eventChannel,
 } from "@moltol/config";
-import type { NegotiationEvent } from "@moltol/contracts";
+import { dealClosedFromEvent, type NegotiationEvent } from "@moltol/contracts";
 import { runHaggle } from "@moltol/engine";
 import { createTurnGenerator } from "@moltol/llm";
 import { createMarketProvider } from "@moltol/market";
@@ -33,6 +35,7 @@ async function main(): Promise<void> {
   const connection = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
   const market = createMarketProvider({
     channel3ApiKey: process.env.CHANNEL3_API_KEY || undefined,
+    serpapiApiKey: process.env.SERPAPI_API_KEY || undefined,
   });
   const llm = createTurnGenerator({
     baseUrl: process.env.LLM_BASE_URL || undefined,
@@ -42,6 +45,14 @@ async function main(): Promise<void> {
 
   const publish = async (event: NegotiationEvent): Promise<void> => {
     await pub.publish(eventChannel(event.negotiationId), JSON.stringify(event));
+    // The seller's live feed: an agent-agreed (or timed-out) lane lands here too.
+    if (event.t === "deal.agreed" || event.t === "session.ended") {
+      const ctx = await store.lineContext(event.negotiationId);
+      if (ctx) {
+        const frame = dealClosedFromEvent(event, ctx.shopId, ctx.basketId, ctx.name, ctx.currency);
+        if (frame) await pub.publish(dealChannel(ctx.shopId), JSON.stringify(frame));
+      }
+    }
   };
 
   const worker = new Worker(
@@ -90,6 +101,9 @@ async function main(): Promise<void> {
       await publish(event);
       log("warn", "negotiation timed out", { negotiationId: id });
     }
+    // Release stock held by checkouts that were abandoned before capture.
+    const released = await store.expireReservations(RESERVATION_TTL_MS);
+    if (released > 0) log("info", "expired stock holds", { released });
   };
   const sweeper = setInterval(
     () => void sweep().catch((e) => log("error", "sweep failed", { error: String(e) })),

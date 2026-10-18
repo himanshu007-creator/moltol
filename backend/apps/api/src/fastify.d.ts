@@ -8,8 +8,19 @@ declare module "fastify" {
 
 declare module "@fastify/jwt" {
   interface FastifyJWT {
-    /** sub = user id; tv = the user's token version at issue; jti = this session's id. */
-    payload: { sub: string; email: string; tv: number; jti: string };
+    /**
+     * A session token carries sub/tv/jti. A short-lived seller stream ticket
+     * carries shopId/scope instead and no session claims, so all are optional
+     * here; `authenticate` still rejects anything without a valid sub/tv/jti.
+     */
+    payload: {
+      sub?: string;
+      email?: string;
+      tv?: number;
+      jti?: string;
+      shopId?: string;
+      scope?: string;
+    };
     user: { sub: string; email: string; tv: number; jti: string; exp?: number };
   }
 }

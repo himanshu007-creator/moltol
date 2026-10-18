@@ -30,7 +30,7 @@ export const negotiations = pgTable(
     roundsMax: integer("rounds_max").notNull().default(8),
     /** The buyer's mandate. For a basket line this is the per-unit ceiling. */
     maxTotalCents: integer("max_total_cents").notNull(),
-    currency: text("currency").notNull().default("USD"),
+    currency: text("currency").notNull().default("INR"),
     agreedPriceCents: integer("agreed_price_cents"),
     paypalOrderId: text("paypal_order_id"),
     paypalCaptureId: text("paypal_capture_id"),
@@ -46,6 +46,12 @@ export const negotiations = pgTable(
     qty: numeric("qty", { precision: 15, scale: 3 }),
     /** The shop's public opening (list) price per unit; its floor lives only in the vault. */
     openCents: integer("open_cents"),
+    /**
+     * The vendor's standing floor for this line, snapshotted at haggle time. Kept
+     * off the `Negotiation` contract on purpose (it is seller-only): the seller's
+     * ledger reads it directly to compute the margin kept; a buyer never sees it.
+     */
+    floorCents: integer("floor_cents"),
     shopPersona: text("shop_persona"),
     /** A human has taken the buyer's side over; the agent runner must not move. */
     controlled: boolean("controlled").notNull().default(false),
@@ -130,8 +136,13 @@ export const payments = pgTable(
     /** Kept so a buyer who reloads mid-checkout can still reach PayPal's approval page. */
     approveUrl: text("approve_url"),
     status: text("status").notNull().default("order_created"),
+    /** What the gateway was charged, in `currency` (e.g. USD). */
     amountCents: integer("amount_cents").notNull(),
-    currency: text("currency").notNull().default("USD"),
+    currency: text("currency").notNull().default("INR"),
+    /** The deal total in the shop's currency (e.g. INR), and the rate used to charge it. */
+    dealAmountCents: integer("deal_amount_cents"),
+    dealCurrency: text("deal_currency"),
+    fxRate: numeric("fx_rate", { precision: 18, scale: 8 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -199,6 +210,8 @@ export const shops = pgTable(
     currency: text("currency").notNull().default("INR"),
     lat: doublePrecision("lat"),
     lng: doublePrecision("lng"),
+    /** When the pin was last moved — how fresh a "live" vendor location is. */
+    locationUpdatedAt: timestamp("location_updated_at", { withTimezone: true }),
     /** Stall status. A due closeAt/reopenAt flips `isOpen` on read (see shopStatus). */
     isOpen: boolean("is_open").notNull().default(true),
     closeAt: timestamp("close_at", { withTimezone: true }),
@@ -223,6 +236,8 @@ export const shopItems = pgTable(
     floorCents: integer("floor_cents").notNull(),
     /** Stock in `unit`; null = not tracked. */
     quantity: numeric("quantity", { precision: 15, scale: 3 }),
+    /** Quantity held by checkouts that have not captured yet (finite stock only). */
+    reservedQty: numeric("reserved_qty", { precision: 15, scale: 3 }).notNull().default("0"),
     unit: text("unit"),
     hindiName: text("hindi_name"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -230,6 +245,27 @@ export const shopItems = pgTable(
   },
   (t) => ({
     shop: index("shop_items_shop_idx").on(t.shopId),
+  }),
+);
+
+/**
+ * A soft hold placed at checkout so two buyers cannot both buy the last unit.
+ * Released when the payment fails or the hold expires; converted to a sale at
+ * capture (the stock itself is decremented by `markBasketPaid`).
+ */
+export const reservations = pgTable(
+  "reservations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    basketId: uuid("basket_id").notNull(),
+    shopItemId: uuid("shop_item_id").notNull(),
+    qty: numeric("qty", { precision: 15, scale: 3 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+  },
+  (t) => ({
+    basket: index("reservations_basket_idx").on(t.basketId),
+    item: index("reservations_item_idx").on(t.shopItemId),
   }),
 );
 

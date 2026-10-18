@@ -24,7 +24,7 @@ packages/policy     pure negotiation policy: concessions, guard, commit–reveal
 packages/engine     the step-based haggle: agent runner + human takeover over one event log
 packages/store      Drizzle schema + migrations + repositories (Postgres)
 packages/paypal     OAuth token cache, Orders v2 create/capture, webhook self-verification
-packages/market     market comps (Channel3 client + deterministic seeded fallback)
+packages/market     market comps (Channel3 + SerpAPI clients + deterministic seeded fallback)
 packages/llm        LLM turn-text adapter (OpenAI-compatible, with canned fallback)
 infra/caddy         reverse proxy + load balancer + automatic TLS
 infra/terraform     AWS (EC2) + Docker deploy (self-host option)
@@ -57,9 +57,11 @@ pnpm dev                      # api + worker with hot reload
 - API: http://localhost:3000 · Swagger UI: http://localhost:3000/docs
 - `GET /healthz` · `GET /readyz` · `GET /v1/version`
 
-No external keys are needed: PayPal, the LLM, market comps, and email all have
-offline fallbacks (mock checkout, a canned narrator, seeded comps, OTP codes in
-the API log).
+No external keys are needed: PayPal, the LLM, market comps, photo snap, and email
+all have offline fallbacks (mock checkout, a canned narrator, seeded comps, a
+built-in item catalogue, OTP codes in the API log). Add `LLM_BASE_URL` /
+`LLM_API_KEY` / `LLM_MODEL` for live turns + vision, and `CHANNEL3_API_KEY` or
+`SERPAPI_API_KEY` for live market comps.
 
 ### Run the whole stack in Docker
 
@@ -82,13 +84,18 @@ the line's `lineItemId`.
 | Step | Call |
 | --- | --- |
 | Vendor sets up | `POST /v1/shops/me` (name, emoji, persona, location) · `POST /v1/shops/me/items` (list `sellCents` ≥ lowest `floorCents`) · `PUT /v1/shops/me/status` (open/close, timers) |
+| Vendor moves | `PATCH /v1/shops/me/location {lat,lng}` — the live pin while the stall is out; `nearby` carries `locationUpdatedAt` |
+| Vendor adds | `POST /v1/inventory/snap {image, hint?}` — a photo data URL → suggested items (`source: vision` or `catalogue`), the vendor confirms and prices |
 | Buyer finds stalls | `GET /v1/shops/nearby?lat&lng&radiusM` (open by distance, closed last) · `GET /v1/shops/:id` (no floors) · `GET /v1/shops/status/stream` (SSE `shop.status`) |
 | Start | `POST /v1/baskets` `{shopId, lines:[{itemId, qty}], request:{rounds, tone, preset}}` |
 | Watch | `GET /v1/baskets/:id/events` — one SSE stream of every lane, paced ~0.9 s per turn |
 | Step in | `POST /v1/baskets/:id/lines/:lineItemId/takeover` · `…/offer {priceCents}` · `…/accept` · `POST /v1/baskets/:id/accept-all` |
 | Pay | `POST /v1/baskets/:id/checkout` (one PayPal order for the basket) → approve in PayPal → `POST /v1/baskets/:id/capture` |
+| Retry | `POST /v1/baskets/:id/retry` — after a failed payment, a fresh PayPal order for the same lanes |
 | Prove | proofs return from capture; `GET /v1/baskets/:id/proof`; `proof.revealed` on the stream |
 | History | `GET /v1/orders` · `GET /v1/orders/:id` (buyer) · `GET /v1/shops/me/deals?since=` (seller) |
+| Books | `GET /v1/ledger?period=` · `GET /v1/ledger/summary` · `POST /v1/ledger/ask {question}` · `GET /v1/insights/buyer` |
+| Seller feed | `POST /v1/shops/me/deals/ticket` → `GET /v1/shops/me/deals/stream?ticket=` (SSE `deal.incoming` / `deal.closed`) |
 
 **Every line lands on a price.** On a basket line the buyer's sealed ceiling is the
 shop's list price and the shop's sealed limit is a per-line reserve drawn at random
@@ -144,15 +151,23 @@ Set `PAYPAL_ENV=sandbox`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WE
 and `PUBLIC_BASE_URL=https://<your-https-host>` (PayPal only delivers to HTTPS :443 —
 use a tunnel locally).
 
-### PayPal and INR
+### PayPal and INR (settlement conversion)
 
-Shops price in `DEFAULT_CURRENCY` (default `INR`, matching the frontend). PayPal
-no longer offers domestic payments in India and INR is not among its REST
-currencies, so a **real** PayPal order in INR is expected to be rejected (the API
-answers `502 payment_provider_error` with PayPal's issue code). The mock gateway
-settles any currency. For a live PayPal demo, either run the shops in a PayPal
-currency (`DEFAULT_CURRENCY=USD`, prices entered in that currency) or add an
-explicit conversion step — a product decision, deliberately not guessed here.
+Shops price in `DEFAULT_CURRENCY` (default `INR`, matching the frontend), and the
+deal keeps INR amounts everywhere — lines, proofs, ledger. PayPal does not support
+INR, so **checkout converts**: the order is charged in
+`PAYPAL_SETTLEMENT_CURRENCY` (default `USD`) at `FX_USD_PER_INR`
+(default `0.012`, i.e. ~₹83.33 = $1). Both sides are recorded: the payment row
+stores the gateway charge (`amountCents`/`currency`) plus the deal total
+(`dealAmountCents`/`dealCurrency`) and the `fxRate` used, and the checkout
+response carries `deal` and `fxRate` so the UI can show "₹4,000 ≈ $48.00".
+
+The rate is a configured constant, not a live quote — deterministic and
+auditable for a demo. Set `FX_USD_PER_INR` to the current rate before a live run,
+or leave `PAYPAL_SETTLEMENT_CURRENCY=INR` to see PayPal reject an unsupported
+currency honestly. Only the `INR→USD` pair is wired; an unknown pair is passed
+through unchanged (the gateway then rejects it). The mock gateway settles any
+currency, so dev/CI runs the full flow without keys.
 
 ## Deploy (self-host on AWS)
 
