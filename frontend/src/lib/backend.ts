@@ -153,6 +153,10 @@ export interface Shop {
   id: string;
   name: string;
   emoji: string;
+  persona?: string;
+  currency?: string;
+  location?: { lat: number; lng: number } | null;
+  status?: ShopStatus;
 }
 export interface ShopItem {
   id: string;
@@ -187,4 +191,244 @@ export function deleteShopItem(token: string, itemId: string): Promise<void> {
 }
 export function getPublicShop(shopId: string): Promise<Shop & { items: PublicShopItem[] }> {
   return call('GET', `/v1/shops/${shopId}`);
+}
+
+/* ---------------------------------------------------------------------------
+ * Baskets — the real haggle. See `backend/apps/api/src/basket-routes.ts` and
+ * `backend/packages/contracts/src/basket.ts`, which these types mirror.
+ * ------------------------------------------------------------------------- */
+
+export type HaggleTone = 'polite' | 'playful' | 'firm';
+export type HagglePreset = 'quick' | 'balanced' | 'hard';
+export type NegotiationLineState =
+  | 'init'
+  | 'committed'
+  | 'negotiating'
+  | 'agreed'
+  | 'payment_pending'
+  | 'paid'
+  | 'revealed'
+  | 'no_deal'
+  | 'failed';
+export type BasketState = 'negotiating' | 'settled' | 'payment_pending' | 'paid' | 'failed';
+export type BasketPaymentStatus = 'order_created' | 'approved' | 'captured' | 'failed' | 'refunded';
+
+export interface BasketLine {
+  lineItemId: string;
+  itemId: string;
+  name: string;
+  emoji: string | null;
+  unit: string | null;
+  qty: number;
+  listCents: number;
+  listLineCents: number;
+  state: NegotiationLineState;
+  controlled: boolean;
+  askCents: number;
+  lastBuyerCents: number | null;
+  agreedUnitCents: number | null;
+  agreedLineCents: number | null;
+  market: BackendMarketRange | null;
+}
+export interface Basket {
+  id: string;
+  shopId: string;
+  shopName: string;
+  shopEmoji: string;
+  currency: string;
+  state: BasketState;
+  request: { rounds: number; tone: HaggleTone; preset: HagglePreset | null };
+  lines: BasketLine[];
+  totals: {
+    listCents: number;
+    agreedCents: number;
+    savedCents: number;
+    agreedLines: number;
+    openLines: number;
+  };
+  paypalOrderId: string | null;
+  createdAt: string;
+}
+export interface LineActionResult {
+  line: BasketLine;
+  accepted: boolean;
+  counterCents: number | null;
+}
+export interface AcceptAllResult {
+  agreed: Array<{ lineItemId: string; unitCents: number; lineCents: number }>;
+  basket: Basket;
+}
+export interface BasketCheckoutResult {
+  basketId: string;
+  paypalOrderId: string;
+  approveUrl: string | null;
+  amountCents: number;
+  currency: string;
+}
+export interface ProofResult {
+  negotiationId: string;
+  verified: boolean;
+  fairness: number;
+  buyerSavedCents: number;
+  shopGainedCents: number;
+  priceCents: number;
+  currency: string;
+  buyerCommit: string;
+  shopCommit: string;
+  reasons: string[];
+  reveal: { buyerLimitCents: number; buyerSalt: string; shopFloorCents: number; shopSalt: string };
+}
+export interface BasketCaptureResult {
+  basketId: string;
+  status: BasketPaymentStatus;
+  captureId: string | null;
+  proofs: ProofResult[];
+}
+
+export function createBasket(
+  token: string,
+  input: { shopId: string; lines: Array<{ itemId: string; qty: number }>; request?: { preset?: HagglePreset; rounds?: number; tone?: HaggleTone } },
+): Promise<Basket> {
+  return authedCall('POST', '/v1/baskets', token, input);
+}
+export function getBasket(token: string, basketId: string): Promise<Basket> {
+  return authedCall('GET', `/v1/baskets/${basketId}`, token);
+}
+export function takeoverLine(token: string, basketId: string, lineId: string): Promise<LineActionResult> {
+  return authedCall('POST', `/v1/baskets/${basketId}/lines/${lineId}/takeover`, token);
+}
+export function offerLine(token: string, basketId: string, lineId: string, priceCents: number): Promise<LineActionResult> {
+  return authedCall('POST', `/v1/baskets/${basketId}/lines/${lineId}/offer`, token, { priceCents });
+}
+export function acceptLine(token: string, basketId: string, lineId: string): Promise<LineActionResult> {
+  return authedCall('POST', `/v1/baskets/${basketId}/lines/${lineId}/accept`, token);
+}
+export function acceptAllLines(token: string, basketId: string): Promise<AcceptAllResult> {
+  return authedCall('POST', `/v1/baskets/${basketId}/accept-all`, token);
+}
+export function checkoutBasket(token: string, basketId: string): Promise<BasketCheckoutResult> {
+  return authedCall('POST', `/v1/baskets/${basketId}/checkout`, token);
+}
+export function captureBasket(token: string, basketId: string): Promise<BasketCaptureResult> {
+  return authedCall('POST', `/v1/baskets/${basketId}/capture`, token);
+}
+
+/* ---------------------------------------------------------------------------
+ * Orders — a checked-out basket, in the frontend's own `Order` vocabulary.
+ * ------------------------------------------------------------------------- */
+
+export interface BackendOrderLine {
+  lineItemId: string;
+  itemId: string | null;
+  title: string;
+  emoji: string | null;
+  unit: string | null;
+  qty: number;
+  unitCents: number | null;
+  lineCents: number | null;
+  listLineCents: number;
+  noDeal: boolean;
+}
+export interface BackendOrder {
+  id: string;
+  ts: string;
+  shopId: string;
+  shopName: string;
+  shopEmoji: string;
+  currency: string;
+  lines: BackendOrderLine[];
+  totalCents: number;
+  listCents: number;
+  marketCents: number;
+  savingsCents: number;
+  fairness: number | null;
+  proofVerified: boolean;
+  paymentStatus: BasketPaymentStatus;
+}
+
+export function listOrders(token: string): Promise<BackendOrder[]> {
+  return authedCall('GET', '/v1/orders', token);
+}
+export function getOrder(token: string, id: string): Promise<BackendOrder> {
+  return authedCall('GET', `/v1/orders/${id}`, token);
+}
+
+/* ---------------------------------------------------------------------------
+ * Discovery and stall status.
+ * ------------------------------------------------------------------------- */
+
+export interface ShopStatus {
+  open: boolean;
+  closeAt: number | null;
+  reopenAt: number | null;
+}
+export interface NearbyShop {
+  id: string;
+  name: string;
+  emoji: string;
+  persona: string;
+  currency: string;
+  location: { lat: number; lng: number } | null;
+  status: ShopStatus;
+  distanceM: number;
+  itemCount: number;
+}
+
+export function nearbyShops(lat: number, lng: number, radiusM = 3000): Promise<NearbyShop[]> {
+  return call('GET', `/v1/shops/nearby?lat=${lat}&lng=${lng}&radiusM=${radiusM}`);
+}
+export function updateShopLocation(token: string, location: { lat: number; lng: number } | null): Promise<Shop> {
+  return authedCall('PATCH', '/v1/shops/me', token, { location });
+}
+export function setShopStatus(
+  token: string,
+  input: { open: boolean; closeInMin?: number; reopenInMin?: number },
+): Promise<{ status: ShopStatus }> {
+  return authedCall('PUT', '/v1/shops/me/status', token, input);
+}
+
+export interface ShopDeal {
+  id: string;
+  ts: string;
+  itemId: string | null;
+  name: string;
+  emoji: string | null;
+  unit: string | null;
+  qty: number;
+  won: boolean;
+  unitCents: number | null;
+  lineCents: number | null;
+  listCents: number;
+  currency: string;
+}
+export function getShopDeals(token: string, since?: string): Promise<ShopDeal[]> {
+  return authedCall('GET', `/v1/shops/me/deals${since ? `?since=${encodeURIComponent(since)}` : ''}`, token);
+}
+
+/* ---------------------------------------------------------------------------
+ * Session / preferences.
+ * ------------------------------------------------------------------------- */
+
+export type Role = 'buyer' | 'seller';
+
+export interface Me {
+  id: string;
+  email: string;
+  hasShop: boolean;
+  activeRole: Role;
+  hagglePreset: HagglePreset;
+  shop?: { id: string; name: string; emoji: string };
+}
+
+export function getMe(token: string): Promise<Me> {
+  return authedCall('GET', '/v1/me', token);
+}
+export function setRole(token: string, activeRole: Role): Promise<{ activeRole: Role }> {
+  return authedCall('PATCH', '/v1/me/role', token, { activeRole });
+}
+export function setHagglePreset(token: string, preset: HagglePreset): Promise<{ preset: HagglePreset }> {
+  return authedCall('PUT', '/v1/me/preferences/haggle', token, { preset });
+}
+export function logout(token: string): Promise<void> {
+  return authedCall('POST', '/v1/auth/logout', token);
 }

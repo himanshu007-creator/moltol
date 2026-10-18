@@ -23,6 +23,14 @@ export interface InventoryItem {
   stock: number;
   /** explicit market band for items not in COMP_LIB (vendor-added items) */
   market?: { median: number; p25: number; p75: number };
+  /**
+   * The real backend `shop_items.id` (UUID), set only when this item came
+   * from `GET /v1/shops/:shopId` instead of the seeded catalogue. Its
+   * presence (alongside the parent `Shop.backendShopId`) is what tells
+   * `bazaar.ts` to haggle this lane against the real basket API instead of
+   * running the local simulation.
+   */
+  backendItemId?: string;
 }
 
 export type ShopKind = 'thela' | 'kirana' | 'fruit';
@@ -39,10 +47,12 @@ export interface Shop {
   lat: number;
   lng: number;
   distanceM: number;
-  persona: 'charmer' | 'stoic' | 'storyteller';
+  persona: 'charmer' | 'stoic' | 'storyteller' | 'analyst';
   products: InventoryItem[];
   /** cross-item tactic mock: "buy both, save" */
   bundle?: { skus: [string, string]; discountCents: number };
+  /** The real backend `shops.id` (UUID), set only for a shop fetched from `/v1/shops/nearby` or `/v1/shops/:id`. */
+  backendShopId?: string;
 }
 
 const I = (
@@ -265,6 +275,9 @@ export function seededRandom(seedStr: string): () => number {
  * their basket, so the shop and the buyer always land on a number. The buyer's
  * offer rises each round, the shop's falls (never below its floor), and they
  * always meet: that gap closing is the whole show, not a chance of no sale.
+ *
+ * Events are enveloped exactly like the real backend's (`lib/events.ts`), so
+ * this script and a real SSE stream drive the same reducer identically.
  */
 export function buildScript(shop: Shop, item: InventoryItem): LaneScript {
   const rng = seededRandom(shop.id + '|' + item.sku);
@@ -277,30 +290,44 @@ export function buildScript(shop: Shop, item: InventoryItem): LaneScript {
   const rounds = 3 + Math.floor(rng() * 2); // 3–4 paired rounds
   let shopOff = shopStart;
   let buyerOff = buyerStart;
+
+  const negotiationId = `b-${item.sku}-${Math.random().toString(36).slice(2, 8)}`;
+  let eventSeq = 0;
+  let turnSeq = 0;
+  const frame = (body: { t: string; [k: string]: unknown }) => ({
+    v: 1,
+    id: `${negotiationId}-${eventSeq}`,
+    seq: eventSeq++,
+    negotiationId,
+    ts: new Date().toISOString(),
+    audience: 'all',
+    ...body,
+  });
+  const turn = (body: { actor: string; kind: string; priceCents?: number; message: string; tactic?: string }) =>
+    frame({ t: 'turn', turn: { seq: turnSeq++, ...body } });
+
   const seq: ScriptedEvent[] = [
     {
       delayMs: 100,
-      ev: {
+      ev: frame({
         t: 'session.started',
-        negotiationId: `b-${item.sku}-${Math.random().toString(36).slice(2, 8)}`,
-        item: item.title.en,
-        currency: 'INR',
         roundsMax: 8,
-        market: { medianCents: median, p25Cents: comp.p25, p75Cents: comp.p75 },
-      },
+        persona: shop.persona,
+        market: { medianCents: median, p25Cents: comp.p25, p75Cents: comp.p75, sampleCount: 0, source: 'seed' },
+      }),
     },
-    { delayMs: 1400, ev: { t: 'turn', seq: 1, actor: 'shop', kind: 'offer', priceCents: shopOff, message: 'for you', tactic: 'anchor' } },
+    { delayMs: 1400, ev: turn({ actor: 'shop', kind: 'offer', priceCents: shopOff, message: 'for you', tactic: 'anchor' }) },
   ];
   for (let r = 0; r < rounds; r++) {
     // the buyer closes part of the gap upward, the shop closes part of it downward, never below floor
     buyerOff = Math.min(shopOff, Math.round((buyerOff + (shopOff - buyerOff) * (0.4 + rng() * 0.15)) / 100) * 100);
-    seq.push({ delayMs: 900, ev: { t: 'turn', seq: 2 + r * 2, actor: 'buyer', kind: 'counter', priceCents: buyerOff, message: 'market says lower' } });
+    seq.push({ delayMs: 900, ev: turn({ actor: 'buyer', kind: 'counter', priceCents: buyerOff, message: 'market says lower' }) });
     shopOff = Math.max(floor, buyerOff, Math.round((shopOff - (shopOff - Math.max(buyerOff, floor)) * (0.35 + rng() * 0.15)) / 100) * 100);
-    seq.push({ delayMs: 900, ev: { t: 'turn', seq: 3 + r * 2, actor: 'shop', kind: 'counter', priceCents: shopOff, message: 'final for regular', tactic: r === rounds - 1 ? 'final-offer' : 'market-cite' } });
+    seq.push({ delayMs: 900, ev: turn({ actor: 'shop', kind: 'counter', priceCents: shopOff, message: 'final for regular', tactic: r === rounds - 1 ? 'final-offer' : 'market-cite' }) });
   }
   const agreed = Math.max(floor, Math.round(((buyerOff + shopOff) / 2) / 100) * 100);
-  seq.push({ delayMs: 1100, ev: { t: 'turn', seq: seq.length + 10, actor: 'buyer', kind: 'accept', priceCents: agreed, message: 'deal', tactic: 'bundle' } });
-  seq.push({ delayMs: 400, ev: { t: 'deal.agreed', priceCents: agreed } });
+  seq.push({ delayMs: 1100, ev: turn({ actor: 'buyer', kind: 'accept', priceCents: agreed, message: 'deal', tactic: 'bundle' }) });
+  seq.push({ delayMs: 400, ev: frame({ t: 'deal.agreed', priceCents: agreed, currency: 'INR' }) });
   return { sku: item.sku, events: seq, noDeal: false };
 }
 
