@@ -8,8 +8,10 @@ import { useSession } from "@/stores/session";
 import {
   checkoutBasket,
   captureBasket,
+  retryBasketCheckout,
   getOrder,
   BackendAuthError,
+  type BasketCheckoutResult,
 } from "@/lib/backend";
 import { formatMoney } from "@/lib/money";
 import { roundQty } from "@/lib/units";
@@ -41,6 +43,13 @@ export default function PayFlow() {
   >(null);
   const [approveUrl, setApproveUrl] = useState<string | null>(null);
   const [payError, setPayError] = useState<string | null>(null);
+  // Set once checkout (or a retry) names a PayPal order that never got
+  // captured — the next "Pay now" click must call /retry, not checkout again,
+  // since checkout is idempotent and would just hand back the same stale order.
+  const [checkoutFailed, setCheckoutFailed] = useState(false);
+  // Shown only when the gateway charged a different currency than the deal
+  // (INR shop -> PayPal settling in USD) — see ADR 0008.
+  const [charge, setCharge] = useState<BasketCheckoutResult | null>(null);
 
   const agreed = sum.lanes.filter((l) => !l.noDeal && l.agreedCents != null);
   const order = orderId
@@ -76,6 +85,7 @@ export default function PayFlow() {
           ? e.detail || e.title
           : "Payment failed. Try again.",
       );
+      setCheckoutFailed(true);
       setStage("ready");
     }
   };
@@ -94,7 +104,11 @@ export default function PayFlow() {
       setOrderId(bz.basketId);
       setRealStep("order_created");
       try {
-        const checkout = await checkoutBasket(token, bz.basketId);
+        const checkout = checkoutFailed
+          ? await retryBasketCheckout(token, bz.basketId)
+          : await checkoutBasket(token, bz.basketId);
+        setCharge(checkout);
+        setCheckoutFailed(false);
         setRealStep("approved");
         if (checkout.approveUrl) {
           setApproveUrl(checkout.approveUrl);
@@ -108,6 +122,7 @@ export default function PayFlow() {
             ? e.detail || e.title
             : "Checkout failed. Try again.",
         );
+        setCheckoutFailed(true);
         setStage("ready");
       }
       return;
@@ -197,6 +212,13 @@ export default function PayFlow() {
               cents={sum.totalAgreedCents}
               className="t-num mt-1 block text-4xl font-semibold text-paper"
             />
+            {charge && charge.fxRate !== 1 && (
+              <p className="mt-1 text-xs text-paper/60">
+                Charged as{" "}
+                {formatMoney(charge.amountCents, charge.currency)} via PayPal
+                (PayPal doesn't settle {charge.deal.currency} directly).
+              </p>
+            )}
           </div>
           <ol className="grid gap-3">
             {steps.map((s) => (
@@ -526,6 +548,15 @@ export default function PayFlow() {
         Back to the live bazaar
       </a>
 
+      {payError && (
+        <p
+          role="alert"
+          className="fixed inset-x-4 bottom-[calc(env(safe-area-inset-bottom)+10rem)] z-30 mx-auto max-w-md rounded-2xl bg-chili/15 px-4 py-2 text-sm font-medium text-chili sm:bottom-40"
+        >
+          {payError}
+        </p>
+      )}
+
       {/* pay bar, thumb reach, above the bottom nav */}
       <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+5rem)] z-30 px-4 sm:bottom-24">
         <div className="mx-auto flex max-w-md items-center gap-3 rounded-3xl bg-ink p-3 pl-4 shadow-2xl">
@@ -542,7 +573,7 @@ export default function PayFlow() {
             onClick={() => void pay()}
             className="btn btn-primary !min-h-12"
           >
-            Pay now
+            {checkoutFailed ? "Retry payment" : "Pay now"}
           </button>
         </div>
       </div>

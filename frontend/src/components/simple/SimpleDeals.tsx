@@ -1,19 +1,102 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useSimple } from '@/stores/simple';
+import { useSession } from '@/stores/session';
+import { getDealsTicket, dealsStreamUrl, type DealFeedEvent } from '@/lib/backend';
 import { type Locale, s, nativeRupaye, nativeNum } from '@/lib/simple/strings';
 import { useOrders, type Order, type PaymentStatus } from '@/stores/orders';
 import { useVenue, DEMO_SLOT_ID } from '@/stores/venue';
+
+/**
+ * The seller's real live deal feed (`GET /v1/shops/me/deals/stream`, see ADR
+ * 0007) — a shop-scoped ticket since `EventSource` can't send an auth header.
+ * A ticket is good for 120s, so a dropped connection fetches a fresh one
+ * before reopening rather than relying on native retry against a stale URL.
+ * Kept entirely separate from `dealsLog` (the local haggle simulation), which
+ * keeps working unchanged for a demo account or a seeded shop.
+ */
+function useRealDealFeed(): DealFeedEvent[] {
+  const token = useSession((s) => s.token);
+  const [events, setEvents] = useState<DealFeedEvent[]>([]);
+  const sourceRef = useRef<EventSource | null>(null);
+  useEffect(() => {
+    setEvents([]);
+    if (!token) return;
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const connect = () => {
+      if (cancelled) return;
+      void getDealsTicket(token)
+        .then(({ ticket }) => {
+          if (cancelled) return;
+          const url = dealsStreamUrl(ticket);
+          if (!url) return;
+          const source = new EventSource(url);
+          sourceRef.current = source;
+          source.onmessage = (ev) => {
+            try {
+              const frame = JSON.parse(ev.data as string) as DealFeedEvent;
+              setEvents((prev) => [frame, ...prev].slice(0, 20));
+            } catch {
+              /* ignore malformed frame */
+            }
+          };
+          source.onerror = () => {
+            source.close();
+            if (!cancelled) retryTimer = setTimeout(connect, 2000);
+          };
+        })
+        .catch(() => {
+          // No real shop yet, or backend unreachable — the local simulation stands alone.
+        });
+    };
+    connect();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      sourceRef.current?.close();
+    };
+  }, [token]);
+  return events;
+}
 
 export default function SimpleDeals() {
   const { dealsLog, todayEarningsCents, language } = useSimple();
   const dict = s(language);
   const paid = useOrders((o) => o.orders).filter((o) => o.shopId === DEMO_SLOT_ID);
   const open = useVenue((st) => st.stalls[DEMO_SLOT_ID]?.open !== false);
+  const realDeals = useRealDealFeed();
 
   return (
     <div className="mx-auto w-full max-w-md px-4 pb-32 pt-6">
       <h1 className="text-2xl font-semibold text-ink">{dict.u.homeDeals}</h1>
       <p className="mt-1 text-sm text-ink-faint">{dict.u.earningsToday}: <b>{nativeRupaye(todayEarningsCents, language)}</b></p>
+
+      {/* real, live offers on a real shop's basket lines */}
+      {realDeals.length > 0 && (
+        <div className="mt-6">
+          <h2 className="text-lg font-semibold text-ink">Live on your shop</h2>
+          <div className="mt-2 grid gap-2">
+            {realDeals.map((d, i) => (
+              <div key={`${d.ts}-${i}`} className="flex items-center gap-3 surface p-4">
+                <span className="text-2xl" aria-hidden="true">{d.t === 'deal.incoming' ? '🛎️' : d.won ? '✅' : '🚪'}</span>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-ink">
+                    {d.t === 'deal.incoming'
+                      ? `New basket · ${d.lines.length} item${d.lines.length === 1 ? '' : 's'}`
+                      : `${d.name} — ${d.won ? 'closed' : "didn't close"}`}
+                  </p>
+                  <p className="text-xs text-ink-faint">{timeOf(new Date(d.ts).getTime())}</p>
+                </div>
+                {d.t === 'deal.closed' && d.won && d.unitCents != null && (
+                  <span className="text-lg font-bold text-teal">{nativeRupaye(d.unitCents, language)}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* buyer-paid orders = receipts from the shared orders ledger */}
       <div className="mt-6">
