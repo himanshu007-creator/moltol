@@ -3,9 +3,10 @@
 Source of truth: zod schemas and the typed TS interfaces named below. Money is integer paise (`₹`),
 formatted with Intl (`src/lib/money.ts`). Quantities always carry a unit (`src/lib/units.ts`).
 
-> **Status update (backend now real and deployed).** The API is live at
-> `https://api.13.238.88.61.nip.io` (`/v1/version` → `paypal: real`), built from PR **#5**
-> (`feat/backend-frontend-inr-fx-snap-feed`). §1's mock layer and §4's table now point at real
+> **Status update (backend now real).** The API was built from PR **#5**
+> (`feat/backend-frontend-inr-fx-snap-feed`); its instance has since been retired and no API
+> is deployed right now (rebuild with `terraform apply` under `AWS_PROFILE=moltol`).
+> §1's mock layer and §4's table now point at real
 > routes; where the doc and the API disagree, the API (§4) wins. The FE still runs its mock by
 > default (`PUBLIC_USE_FIXTURE=true`), so this file now reads as "mock today, real endpoint
 > beside it". The API is **basket-first**: the per-line primitive is `POST /v1/baskets`
@@ -311,7 +312,8 @@ What the FE computes today versus where it should run.
 `PUBLIC_PAYPAL_CLIENT_ID` (sandbox, client-side only, never a secret).
 
 **Swap checklist**
-1. Set `PUBLIC_USE_FIXTURE=false`, `PUBLIC_API_BASE=https://api.13.238.88.61.nip.io`.
+1. Set `PUBLIC_USE_FIXTURE=false`, `PUBLIC_API_BASE` to your deployed API base (terraform
+   prints it on apply; keep the `/v1/version` sanity check).
 2. Replace `idbStorage` reads with fetches. Keep the zustand shapes. Stores become caches.
 3. Route the endpoints in §4 through one client module (not built yet).
 4. Replace `BroadcastChannel` with `GET /v1/shops/status/stream` (SSE, §5).
