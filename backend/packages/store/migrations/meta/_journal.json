@@ -71,6 +71,13 @@
       "when": 1792316881446,
       "tag": "0009_payment_fx",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792605849172,
+      "tag": "0010_modern_inventory",
+      "breakpoints": true
     }
   ]
 }

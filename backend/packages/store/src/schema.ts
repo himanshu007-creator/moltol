@@ -231,20 +231,55 @@ export const shopItems = pgTable(
     shopId: uuid("shop_id").notNull(),
     name: text("name").notNull(),
     emoji: text("emoji"),
+    /** Buyer-facing sticker price. */
     sellCents: integer("sell_cents").notNull(),
     /** The vendor's floor. Copied into the sealed vault when a negotiation starts. */
     floorCents: integer("floor_cents").notNull(),
+    /** What the vendor paid for it. Seller-only — never leaves the owner view. */
+    costCents: integer("cost_cents"),
+    /** Coarse grouping for the vendor console (e.g. "vegetables"). */
+    category: text("category"),
     /** Stock in `unit`; null = not tracked. */
     quantity: numeric("quantity", { precision: 15, scale: 3 }),
     /** Quantity held by checkouts that have not captured yet (finite stock only). */
     reservedQty: numeric("reserved_qty", { precision: 15, scale: 3 }).notNull().default("0"),
+    /** Low-stock alert threshold in `unit`; 0 disables the hint. */
+    lowStockAt: numeric("low_stock_at", { precision: 15, scale: 3 }).notNull().default("0"),
+    /** Soft delete: archived items never reach buyers but keep their history. */
+    archived: boolean("archived").notNull().default(false),
     unit: text("unit"),
+    /** Unit label when `unit = 'custom'`. */
+    customUnit: text("custom_unit"),
+    /** Grams (mass) or millilitres (volume) per unit, for `pack`/`custom`. */
+    packSize: numeric("pack_size", { precision: 15, scale: 3 }),
     hindiName: text("hindi_name"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     shop: index("shop_items_shop_idx").on(t.shopId),
+  }),
+);
+
+/**
+ * Every stock change with a reason — the audit trail behind adjust-with-reason
+ * and undo. `opId` makes a retried adjust idempotent.
+ */
+export const stockAdjustments = pgTable(
+  "stock_adjustments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopItemId: uuid("shop_item_id").notNull(),
+    /** Signed change applied to `shop_items.quantity`. */
+    delta: numeric("delta", { precision: 15, scale: 3 }).notNull(),
+    reason: text("reason"),
+    /** Client-supplied idempotency key; unique per item. */
+    opId: text("op_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    item: index("stock_adjustments_item_idx").on(t.shopItemId),
+    op: uniqueIndex("stock_adjustments_op_idx").on(t.shopItemId, t.opId),
   }),
 );
 
