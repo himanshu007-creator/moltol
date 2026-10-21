@@ -1,11 +1,36 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useInventory } from '@/stores/inventory';
 import { useLedger } from '@/stores/ledger';
+import { useSession } from '@/stores/session';
+import { getLedgerSummary, type LedgerSummary } from '@/lib/backend';
 import { computeLedger, DEAD_STOCK_DAYS, type ItemRow, type Hint } from '@/lib/ledger';
 import { formatMoney, formatMoneyWhole } from '@/lib/money';
 import { roundQty } from '@/lib/units';
 import { cn } from '@/lib/cn';
 import PeriodChart from '@/components/vendor/PeriodChart';
+
+/**
+ * Real numbers from the backend's Merchant Ledger (`GET /v1/ledger/summary`),
+ * for a seller with a real shop and at least one real sale. The grid/widget
+ * dashboard (AG Grid Studio) that normally binds to the full `/v1/ledger` is
+ * its own, larger build — see BE_MISSING_THINGS.md's sponsor-integration
+ * writeup — this is the honest, scoped piece: real KPIs surfaced next to the
+ * existing local-estimate dashboard below, which keeps working unchanged.
+ */
+function useRealLedgerSummary(): LedgerSummary | null {
+  const token = useSession((s) => s.token);
+  const [summary, setSummary] = useState<LedgerSummary | null>(null);
+  useEffect(() => {
+    setSummary(null);
+    if (!token) return;
+    let cancelled = false;
+    getLedgerSummary(token)
+      .then((s) => { if (!cancelled) setSummary(s); })
+      .catch(() => {}); // no real shop yet, or backend unreachable — local estimates stand alone
+    return () => { cancelled = true; };
+  }, [token]);
+  return summary;
+}
 
 type Period = 'byDay' | 'byWeek' | 'byMonth';
 const PERIODS: Array<{ id: Period; label: string }> = [
@@ -25,6 +50,7 @@ export default function LedgerDashboard() {
 
   const L = useMemo(() => computeLedger(items, deals), [items, deals]);
   const k = L.kpis;
+  const real = useRealLedgerSummary();
 
   const apply = (h: Hint) => {
     const it = items.find((i) => i.id === h.sku);
@@ -42,6 +68,18 @@ export default function LedgerDashboard() {
         <h1 className="t-h1">Ledger</h1>
         <p className="mt-1 text-sm text-ink-faint">Last 90 days of demo deals. Figures are estimates until the backend is wired.</p>
       </header>
+
+      {real && real.kpis.deals.total > 0 && (
+        <section aria-label="Real sales from your shop" className="surface-accent grid gap-3 p-4 sm:p-5">
+          <p className="t-label !text-[#5b3200]">Live from your shop ({real.window.period})</p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Kpi label="Revenue" value={formatMoneyWhole(real.kpis.revenueCents, real.currency)} />
+            <Kpi label="Margin kept" value={formatMoneyWhole(real.kpis.marginKeptCents, real.currency)} />
+            <Kpi label="Deals won" value={`${real.kpis.deals.won}`} sub={`${real.kpis.deals.winRatePct}% win rate`} />
+            <Kpi label="Avg. fairness" value={real.kpis.avgFairness != null ? `${real.kpis.avgFairness}%` : '—'} />
+          </div>
+        </section>
+      )}
 
       <section aria-label="Key numbers" className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Kpi label="Revenue" value={formatMoneyWhole(k.revenueCents)} />

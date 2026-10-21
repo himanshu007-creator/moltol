@@ -586,3 +586,205 @@ export function setHagglePreset(
 export function logout(token: string): Promise<void> {
   return authedCall("POST", "/v1/auth/logout", token);
 }
+
+/* ------------------------------- ledger (seller) -------------------------- */
+
+export type LedgerPeriod = "7d" | "30d" | "90d" | "all";
+
+export interface LedgerWindow {
+  period: LedgerPeriod;
+  from: string | null;
+  to: string;
+}
+export interface LedgerRow {
+  id: string;
+  ts: string;
+  basketId: string;
+  itemId: string | null;
+  name: string;
+  emoji: string | null;
+  unit: string | null;
+  qty: number;
+  won: boolean;
+  unitCents: number | null;
+  lineCents: number | null;
+  listCents: number;
+  listLineCents: number;
+  floorCents: number | null;
+  floorLineCents: number | null;
+  marginCents: number | null;
+  discountPct: number;
+  fairness: number | null;
+  proofVerified: boolean;
+  currency: string;
+}
+export interface LedgerKpis {
+  deals: { total: number; won: number; lost: number; winRatePct: number };
+  unitsSold: number;
+  revenueCents: number;
+  listCents: number;
+  savingsGivenCents: number;
+  marginKeptCents: number;
+  avgDiscountPct: number;
+  avgFairness: number | null;
+  proofVerifiedRatePct: number;
+}
+export interface LedgerBar {
+  label: string;
+  valueCents: number;
+  count: number;
+}
+export interface LedgerBucket {
+  label: string;
+  from: number;
+  to: number;
+  count: number;
+}
+export interface LedgerFunnelStage {
+  stage: "created" | "settled" | "checked_out" | "paid";
+  label: string;
+  count: number;
+}
+export interface LedgerWidgets {
+  marginByItem: LedgerBar[];
+  revenueByItem: LedgerBar[];
+  fairnessHistogram: LedgerBucket[];
+  dealFunnel: LedgerFunnelStage[];
+}
+export interface Ledger {
+  window: LedgerWindow;
+  currency: string;
+  kpis: LedgerKpis;
+  widgets: LedgerWidgets;
+  rows: LedgerRow[];
+}
+export interface LedgerSummary {
+  window: LedgerWindow;
+  currency: string;
+  kpis: LedgerKpis;
+}
+export interface LedgerAnswer {
+  answer: string;
+  source: "hybrid" | "heuristic" | "paypal";
+  facts: string[];
+  window: LedgerWindow;
+}
+
+export function getLedger(token: string, period: LedgerPeriod = "30d"): Promise<Ledger> {
+  return authedCall("GET", `/v1/ledger?period=${period}`, token);
+}
+export function getLedgerSummary(
+  token: string,
+  period: LedgerPeriod = "30d",
+): Promise<LedgerSummary> {
+  return authedCall("GET", `/v1/ledger/summary?period=${period}`, token);
+}
+export function askLedger(
+  token: string,
+  question: string,
+  period: LedgerPeriod = "30d",
+): Promise<LedgerAnswer> {
+  return authedCall("POST", "/v1/ledger/ask", token, { question, period });
+}
+
+/* ------------------------------ insights (buyer) --------------------------- */
+
+export interface BuyerInsightCard {
+  kind: "savings" | "streak" | "budget" | "fairness" | "shops" | "spend";
+  title: string;
+  value: number;
+  detail: string;
+}
+export interface BuyerInsights {
+  orders: number;
+  totalSpentCents: number;
+  totalListCents: number;
+  totalSavedCents: number;
+  avgSavingsPct: number;
+  avgFairness: number | null;
+  streakDays: number;
+  budgetCents: number | null;
+  cards: BuyerInsightCard[];
+}
+
+export function getBuyerInsights(
+  token: string,
+  budgetCents?: number,
+): Promise<BuyerInsights> {
+  const qs = budgetCents != null ? `?budgetCents=${budgetCents}` : "";
+  return authedCall("GET", `/v1/insights/buyer${qs}`, token);
+}
+
+/* --------------------------- snap-to-add (vendor) --------------------------- */
+
+export interface SnapSuggestion {
+  name: string;
+  emoji: string;
+  unit: string | null;
+  sellCents: number | null;
+  floorCents: number | null;
+  confidence: number;
+}
+export interface SnapResponse {
+  source: "vision" | "catalogue";
+  suggestions: SnapSuggestion[];
+}
+
+/** `imageDataUrl` is a `data:image/...;base64,...` string straight off a <canvas>/<input>. */
+export function snapInventory(
+  token: string,
+  imageDataUrl: string,
+  hint?: string,
+): Promise<SnapResponse> {
+  return authedCall("POST", "/v1/inventory/snap", token, { image: imageDataUrl, hint });
+}
+
+/* ------------------------- seller live deal feed ---------------------------- */
+
+export interface DealStreamTicket {
+  ticket: string;
+  expiresInSec: number;
+}
+
+/** A 2-minute, shop-scoped ticket — `EventSource` can't send an auth header, so this goes in the query string. */
+export function getDealsTicket(token: string): Promise<DealStreamTicket> {
+  return authedCall("POST", "/v1/shops/me/deals/ticket", token);
+}
+
+/** Build the seller's private live-deal SSE URL once a fresh ticket is in hand. */
+export function dealsStreamUrl(ticket: string): string | null {
+  if (!BASE) return null;
+  return `${BASE}/v1/shops/me/deals/stream?ticket=${encodeURIComponent(ticket)}`;
+}
+
+export type DealFeedEvent =
+  | {
+      t: "deal.incoming";
+      shopId: string;
+      basketId: string;
+      ts: string;
+      currency: string;
+      totalCents: number;
+      lines: Array<{ name: string; qty: number; unit: string | null; listCents: number }>;
+    }
+  | {
+      t: "deal.closed";
+      shopId: string;
+      basketId: string;
+      ts: string;
+      lineItemId: string;
+      name: string;
+      won: boolean;
+      unitCents: number | null;
+      currency: string;
+    };
+
+/* ------------------------------ payment retry -------------------------------- */
+
+/** Retry a denied/expired PayPal order for the same agreed lines — no new haggle needed. */
+export function retryBasketCheckout(
+  token: string,
+  basketId: string,
+): Promise<BasketCheckoutResult> {
+  return authedCall("POST", `/v1/baskets/${basketId}/retry`, token);
+}

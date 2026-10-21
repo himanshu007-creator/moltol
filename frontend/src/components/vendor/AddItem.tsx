@@ -11,7 +11,7 @@ import {
   type CsvField,
 } from "@/lib/inventory";
 import { formatMoney } from "@/lib/money";
-import { UNITS, type UnitId } from "@/lib/units";
+import { UNITS, UNIT_WORDS, type UnitId } from "@/lib/units";
 import { cn } from "@/lib/cn";
 import type { FormValues } from "@/components/vendor/ItemForm";
 import {
@@ -21,7 +21,8 @@ import {
   type Detection,
   type Suggestion,
 } from "@/lib/vision";
-import { backendComps, type BackendMarketRange } from "@/lib/backend";
+import { backendComps, snapInventory, type BackendMarketRange } from "@/lib/backend";
+import { useSession } from "@/stores/session";
 
 export type AddMode = "manual" | "csv" | "voice" | "snap";
 
@@ -381,6 +382,42 @@ const SOURCE_LABEL = {
   "serpapi-shopping": "Shopping search (SerpAPI)",
 } as const;
 
+/**
+ * A logged-in seller's photo goes to the real, authenticated backend first
+ * (`POST /v1/inventory/snap`) — a different, proper endpoint from the
+ * `lib/vision.ts` chain below, which targets the dev-only local proxy and
+ * never sends a session token. Falls through to that existing chain (vision
+ * → SerpAPI Lens → offline catalogue) on no token, no suggestions, or any
+ * error, so nothing that worked before stops working.
+ */
+async function detectVia(thumb: string, token: string | null): Promise<Detection> {
+  if (token) {
+    try {
+      const real = await snapInventory(token, thumb);
+      if (real.suggestions.length) {
+        return {
+          suggestions: real.suggestions.map((s) => ({
+            name: s.name,
+            category: "general",
+            emoji: s.emoji,
+            unit: (s.unit && UNIT_WORDS[s.unit.toLowerCase()]) || ("piece" as UnitId),
+            listCents: s.sellCents ?? 0,
+            compKey: undefined,
+          })),
+          source: real.source,
+          note:
+            real.source === "vision"
+              ? "Recognised by the vision model."
+              : "Matched against the shop catalogue.",
+        };
+      }
+    } catch {
+      // No real shop yet, or the backend's own snap fell back to nothing useful — try the rest of the chain.
+    }
+  }
+  return detectItems(thumb);
+}
+
 function SnapAdd({
   onPrefill,
 }: {
@@ -397,6 +434,7 @@ function SnapAdd({
     useState<keyof typeof SOURCE_LABEL>("catalogue");
   const [searching, setSearching] = useState(false);
   const [market, setMarket] = useState<BackendMarketRange | null>(null);
+  const token = useSession((s) => s.token);
 
   const onFile = async (file: File) => {
     setPhase("detecting");
@@ -404,7 +442,7 @@ function SnapAdd({
     try {
       const t = await toThumb(file);
       setThumb(t);
-      setDet(await detectItems(t));
+      setDet(await detectVia(t, token));
       setPhase("ready");
     } catch {
       setPhase("error");

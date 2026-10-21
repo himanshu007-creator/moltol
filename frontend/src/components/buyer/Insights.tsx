@@ -1,13 +1,31 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BUYER_HISTORY } from '@/lib/mock/seeds';
 import { samples } from '@/lib/mock/market';
 import { useOrders } from '@/stores/orders';
+import { useSession } from '@/stores/session';
+import { getBuyerInsights, type BuyerInsights } from '@/lib/backend';
 import { formatMoney, formatMoneyWhole } from '@/lib/money';
 import PeriodChart from '@/components/vendor/PeriodChart';
 import HaggleStyleCard from '@/components/buyer/HaggleStyleCard';
 
 /** Monthly budget goal, paise. Mock: ₹15,000. */
 export const MONTHLY_GOAL_CENTS = 1_500_000;
+
+/** Real numbers from the backend's `GET /v1/insights/buyer`, once a buyer has a real paid order. */
+function useRealInsights(): BuyerInsights | null {
+  const token = useSession((s) => s.token);
+  const [insights, setInsights] = useState<BuyerInsights | null>(null);
+  useEffect(() => {
+    setInsights(null);
+    if (!token) return;
+    let cancelled = false;
+    getBuyerInsights(token)
+      .then((i) => { if (!cancelled) setInsights(i); })
+      .catch(() => {}); // no real orders yet, or backend unreachable — demo history stands alone
+    return () => { cancelled = true; };
+  }, [token]);
+  return insights;
+}
 
 /** Buyer insights: each card is a headline, a reason, and one tap. */
 export default function Insights() {
@@ -28,6 +46,7 @@ export default function Insights() {
   const chart = BUYER_HISTORY.map((m) => ({ label: m.label, revenueCents: m.spendCents, profitCents: m.savedCents }));
 
   const nudge = useMemo(() => priceNudge('tomato'), []);
+  const real = useRealInsights();
 
   return (
     <div className="grid gap-6 pb-32">
@@ -35,6 +54,18 @@ export default function Insights() {
         <h1 className="t-h1">Your wins</h1>
         <p className="text-sm text-ink-faint">Estimates from the demo history until the backend is wired.</p>
       </header>
+
+      {real && real.orders > 0 && (
+        <section aria-label="Your real orders" className="surface-accent grid gap-3 p-4 sm:p-5">
+          <p className="t-label !text-[#5b3200]">From your real orders</p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Card icon="💸" value={formatMoneyWhole(real.totalSavedCents)} label="Saved, real orders" tint="text-teal" />
+            <Card icon="🧺" value={String(real.orders)} label="Real orders" tint="text-ink" />
+            <Card icon="📉" value={`${real.avgSavingsPct}%`} label="Average saved vs sticker" tint="text-warn" />
+            <Card icon="🔥" value={String(real.streakDays)} label="Day streak" tint="text-chili" />
+          </div>
+        </section>
+      )}
 
       <section aria-label="Key numbers" className="grid grid-cols-2 gap-3">
         <Card icon="💸" value={formatMoneyWhole(totalSaved)} label="Saved, all baskets" tint="text-teal" />

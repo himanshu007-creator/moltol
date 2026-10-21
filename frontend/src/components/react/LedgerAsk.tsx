@@ -1,12 +1,15 @@
 import { useMemo, useState } from 'react';
 import { DEALS, totalCents } from '@/lib/deals';
 import { formatMoney } from '@/lib/money';
+import { askLedger, type LedgerAnswer } from '@/lib/backend';
+import { useSession } from '@/stores/session';
 import { button, input as inputCls, mono } from '@/lib/ui';
 import { cn } from '@/lib/cn';
 
-type Answer = { label: string; lines: Array<{ left: string; right: string }> };
+type Answer = { label: string; lines: Array<{ left: string; right: string }>; source?: LedgerAnswer['source'] };
 
-function respond(q: string): Answer {
+/** Local keyword-matching fallback — used when there's no real shop/token to ask the real Ledger Agent. */
+function respondLocally(q: string): Answer {
   const s = q.toLowerCase();
   if (s.includes('below') || s.includes('kam') || s.includes('down') || s.includes('discount')) {
     const below = DEALS.filter((d) => d.soldCents < d.listCents);
@@ -37,8 +40,10 @@ function respond(q: string): Answer {
 }
 
 export default function LedgerAsk() {
+  const token = useSession((s) => s.token);
   const [q, setQ] = useState('');
   const [answer, setAnswer] = useState<Answer | null>(null);
+  const [asking, setAsking] = useState(false);
 
   const suggested = useMemo(
     () => [
@@ -49,9 +54,27 @@ export default function LedgerAsk() {
     [],
   );
 
-  const ask = (text: string) => {
+  const ask = async (text: string) => {
     setQ(text);
-    setAnswer(respond(text));
+    if (!token) {
+      setAnswer(respondLocally(text));
+      return;
+    }
+    setAsking(true);
+    try {
+      const real = await askLedger(token, text);
+      setAnswer({
+        label: real.answer,
+        lines: real.facts.map((f) => ({ left: f, right: '' })),
+        source: real.source,
+      });
+    } catch {
+      // A seller with no real shop yet (404 no_shop) or an unreachable backend
+      // both fall back to the same local demo answer — never a dead end.
+      setAnswer(respondLocally(text));
+    } finally {
+      setAsking(false);
+    }
   };
 
   return (
@@ -59,7 +82,7 @@ export default function LedgerAsk() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (q.trim()) ask(q);
+          if (q.trim()) void ask(q);
         }}
         className="flex gap-2"
       >
@@ -69,8 +92,8 @@ export default function LedgerAsk() {
           placeholder="Try: below, top sellers, total…"
           className={inputCls}
         />
-        <button type="submit" className={button('primary')}>
-          Ask
+        <button type="submit" className={button('primary')} disabled={asking}>
+          {asking ? 'Asking…' : 'Ask'}
         </button>
       </form>
 
@@ -79,7 +102,7 @@ export default function LedgerAsk() {
           <button
             key={s}
             type="button"
-            onClick={() => ask(s)}
+            onClick={() => void ask(s)}
             className="rounded-full border border-chalk bg-paper-2 px-3 py-1.5 text-xs text-ink-muted hover:text-ink"
           >
             {s}
@@ -89,15 +112,24 @@ export default function LedgerAsk() {
 
       {answer && (
         <div className="surface p-4">
-          <p className="text-sm font-semibold text-ink">{answer.label}</p>
-          <dl className="mt-3 space-y-2">
-            {answer.lines.map((l, i) => (
-              <div key={i} className="flex items-center justify-between gap-4 border-b border-chalk/60 pb-2 text-sm last:border-0">
-                <dt className="text-ink-muted">{l.left}</dt>
-                <dd className={cn(mono, 'text-ink')}>{l.right}</dd>
-              </div>
-            ))}
-          </dl>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-ink">{answer.label}</p>
+            {answer.source && (
+              <span className="shrink-0 rounded-full bg-paper-3 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
+                {answer.source === 'hybrid' ? 'AI + your ledger' : answer.source === 'paypal' ? 'PayPal' : 'your ledger'}
+              </span>
+            )}
+          </div>
+          {answer.lines.length > 0 && (
+            <dl className="mt-3 space-y-2">
+              {answer.lines.map((l, i) => (
+                <div key={i} className="flex items-center justify-between gap-4 border-b border-chalk/60 pb-2 text-sm last:border-0">
+                  <dt className="text-ink-muted">{l.left}</dt>
+                  {l.right && <dd className={cn(mono, 'text-ink')}>{l.right}</dd>}
+                </div>
+              ))}
+            </dl>
+          )}
         </div>
       )}
     </div>
