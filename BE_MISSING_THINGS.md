@@ -96,8 +96,8 @@ with dates).
 
 ### Backend — pending
 
-Done this session (2026-10-18, PR **#5** `feat/backend-frontend-inr-fx-snap-feed`, deployed live at
-`https://api.13.238.88.61.nip.io`) — these were all pending above and are now built:
+Done this session (2026-10-18, PR **#5** `feat/backend-frontend-inr-fx-snap-feed`) — these were all
+pending above and are now built:
 `GET /v1/ledger` + `/v1/ledger/summary` + `POST /v1/ledger/ask` (AG Grid "Merchant Ledger"/"Ledger Agent"
 data side, `LedgerAsk` LLM fallback included), `GET /v1/insights/buyer`, stock reservations between
 checkout and capture (`0006_stock_reservations` + worker sweeper), payment retry
