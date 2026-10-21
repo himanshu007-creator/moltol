@@ -125,22 +125,57 @@ Still pending:
 
 ### Frontend — pending
 
-- [ ] **Wiring the FE to the PR #5 endpoints** (ledger/insights/ask, snap, seller feed, retry,
-  INR→USD `deal`/`fxRate` display). `BasketCheckoutResult` now carries `deal` + `fxRate`;
-  `PayFlow` still doesn't render the conversion line.
-- [ ] **"Ask your ledger" is mislabeled as AI.** `LedgerAsk.tsx`'s `respond(q)` is local keyword-matching;
-  the backend now has a real `POST /v1/ledger/ask` — wire it (or reword the copy).
-- [ ] **"Modern" inventory console** (`AddItem.tsx`/`InventoryManager.tsx`) stays unwired to the backend,
-  matching the backend-side item above — not worth doing one side without the other.
-- [ ] Vision / snap-to-add UI stays on its manual-picker fallback — the backend endpoint now exists
-  (`POST /v1/inventory/snap`), so this is now unblocked FE wiring rather than a BE gap.
+Done this session (2026-10-21) — wired and verified live against a rebuilt `docker compose` backend,
+for both a vendor and a buyer journey, not just read from source:
+
+- [x] **`GET /v1/ledger` + `/v1/ledger/summary`** — `LedgerDashboard.tsx` now fetches real KPIs
+  (`useRealLedgerSummary`) and shows a "Live from your shop" strip above the existing local-estimate
+  dashboard (which keeps working unchanged for a seller with no real shop/sale yet). The full AG Grid
+  Studio grid/widgets UI is still its own, separate build — see the sponsor-integration writeup below.
+- [x] **`POST /v1/ledger/ask`** — `LedgerAsk.tsx`'s "Ask your ledger" now calls the real agent when a
+  token exists (falls back to the old local keyword-matcher on a 404/no-shop/unreachable backend), and
+  shows a source badge (`hybrid`/`heuristic`/`paypal`) so the UI is honest about where the answer came from.
+- [x] **`GET /v1/insights/buyer`** — `Insights.tsx` shows a real "from your real orders" KPI strip above
+  the existing demo-history cards once a buyer has a real paid order.
+- [x] **The seller live deal feed** (`POST /v1/shops/me/deals/ticket` + `GET /v1/shops/me/deals/stream`,
+  ADR 0007) — `SimpleDeals.tsx` opens the ticketed SSE stream and renders `deal.incoming`/`deal.closed`
+  frames live in a new "Live on your shop" section, with its own ticket-refresh-on-drop reconnect (a
+  ticket is only good for 120s, so native `EventSource` retry against the same stale URL wouldn't work).
+  Verified live: a buyer's basket create and lane accept both appeared on the seller's open tab in real time.
+- [x] **`POST /v1/inventory/snap`** — `AddItem.tsx`'s "Snap" mode now tries the real, authenticated
+  endpoint first for a logged-in seller, falling back to the existing `lib/vision.ts` chain (which targets
+  a different, unauthenticated dev-proxy convention) on no token or no suggestions. Verified against the
+  real endpoint directly (`catalogue` source, hint-matched).
+- [x] **INR→USD `deal`/`fxRate` display** (ADR 0008) — `PayFlow.tsx`'s "paying" stage shows "Charged as
+  $X.XX USD via PayPal (PayPal doesn't settle INR directly)" when `fxRate !== 1`. Verified the checkout
+  response shape directly (`₹30.00 → $0.36 @ 0.012`); the UI line itself renders too briefly to screenshot
+  with the mock gateway (capture is near-instant with `approveUrl: null`), confirmed by code path instead.
+- [x] **`POST /v1/baskets/:id/retry`** — wired into `PayFlow.tsx`'s `pay()`: a failed/expired checkout now
+  flips the button to "Retry payment" and calls `/retry` (a fresh PayPal order) instead of `/checkout`
+  again, which is idempotent and would otherwise just hand back the same stale, already-failed order.
+- [x] **Real bug found and fixed along the way:** `payError` was being set on a checkout/capture failure
+  but only ever rendered inside the "paying" stage JSX — since the failure path calls `setStage('ready')`,
+  the error message was silently discarded and the buyer just bounced back to the bill screen with no
+  explanation. Now rendered on the "ready" stage too.
+
+Still pending:
+
+- [ ] **"Modern" inventory console** (`AddItem.tsx`/`InventoryManager.tsx`'s own CRUD — cost/min price,
+  bulk edit, CSV import, archive) stays unwired to the backend, matching the backend-side item in "Backend
+  — pending" above — not worth doing one side without the other. (The Snap suggestions above populate
+  this form's fields either way; only the final "save to backend" step is still local-only.)
+- [ ] **AG Grid Studio's actual grid/widget UI** (margin-by-item bar, fairness histogram, deal funnel —
+  all already computed and returned by `GET /v1/ledger`, just not rendered yet) — its own, separate,
+  larger build. See "Hackathon sponsor integrations" below for the full scoped-out spec.
 - [ ] Voice narration and gamification (XP/streaks/badges) are frontend-only by design and were never
   meant to need backend work — listed here only so they aren't mistaken for an oversight; no action needed.
 
 Everything else that used to be a frontend gap — basket haggle, checkout/
-payment, orders/receipts, discovery, stall status, session/role/logout — is
-wired and verified end to end (see "What's wired now" item 3 and the
-checklist sections below for exactly what and how it was tested).
+payment, orders/receipts, discovery, stall status, session/role/logout,
+ledger/insights/ask, the seller live deal feed, snap-to-add, and the
+INR→USD checkout display — is wired and verified end to end (see "What's
+wired now" and the checklist sections below for exactly what and how it
+was tested).
 
 ## Backend pass, 2026-10-16
 
@@ -475,7 +510,7 @@ promised, not a guess. Full sponsor decision table, verbatim from
 | Sponsor | What it is | Prize | Free access | Intended use | Decision | **Status today** |
 | --- | --- | --- | --- | --- | --- | --- |
 | **Channel3** | Normalized product data API, 100M+ products / 25k+ retailers. Has an MCP server. | $1.5k | Key via `trychannel3.com/developers`, 20,000 credits, promo `PAYPAL-HACKATHON-2026` | Market anchor: buyer agent opens with a real comparable price; receipt shows "vs market." | ✅ Core | **✅ Done.** Backend calls it (`backend/packages/market/src/channel3.ts`, `CHANNEL3_API_KEY`), with a seeded fallback when no key is set. |
-| **AG Grid (AG Studio)** | Embedded analytics (dashboards/charts/grid) + the **Studio Agent Framework**. | $5k / $2k / $1k×3 | 45-day trial, boilerplate `paypaldev/hackathon-paypal-ag-grid-boilerplate` | **Merchant Ledger**: custom widgets (margin kept, fairness score, deal funnel) + a natural-language **"Ledger Agent"** ("show deals under floor this week") built on PayPal's `list_transactions`/`get_merchant_insights` reporting tools. | ✅ Core | **❌ Not built, either side.** This is the real, concrete sponsor gap — full spec below. |
+| **AG Grid (AG Studio)** | Embedded analytics (dashboards/charts/grid) + the **Studio Agent Framework**. | $5k / $2k / $1k×3 | 45-day trial, boilerplate `paypaldev/hackathon-paypal-ag-grid-boilerplate` | **Merchant Ledger**: custom widgets (margin kept, fairness score, deal funnel) + a natural-language **"Ledger Agent"** ("show deals under floor this week") built on PayPal's `list_transactions`/`get_merchant_insights` reporting tools. | ✅ Core | **🟡 Data side fully built and wired (2026-10-21); the actual AG Grid/AG Studio UI library is still unbuilt.** `GET /v1/ledger`, `/v1/ledger/summary`, `POST /v1/ledger/ask` (real Ledger Agent, PayPal reporting tools included) all exist and are wired into the frontend (`LedgerDashboard.tsx`'s KPI strip, `LedgerAsk.tsx`) — verified live end to end. What's still missing is narrower now: installing `ag-grid-*`/AG Studio itself and building its themed grid/widget screen against the data these endpoints already return. See below. |
 | **Render** | Cloud platform + **Workflows** (orchestrate many concurrent tasks). | Credits $1k/$750/$500 | $50 credits | Hosting (web/API/Postgres/KV) + each negotiation as a Workflow task, so many stalls haggle concurrently. | ✅ Core | **Not evaluated** — this is a deploy-target/infra decision, not application code; the stack currently runs on plain `docker compose` locally (see `backend/docker-compose.yml`, `backend/docs/adr/0005-hosting.md`). Whoever handles deployment should decide whether to actually host on Render for the submission (the credits + prize require it) or note honestly that it wasn't used. |
 | **APIMatic** | Context Plugins / SDKs / docs generated from API contracts. | $1k×3 + 6mo Business | Free plan via sign-up | Feed the PayPal Context Plugin into the coding agent while building the PayPal gateway; optionally generate an SDK/docs portal from our own OpenAPI contract. | ✅ Dev-time | **Not a runtime integration** — it's a coding-tool aid, nothing to build into the product itself. No code gap; only relevant if the team wants to claim it for the prize, which would mean actually using the plugin during development and saying so in the writeup. |
 | **Elastic** | Elasticsearch, hybrid/vector search, Agent Builder. | none listed | 14-day trial + 30-day extension, or self-host | Stretch: "deal memory" — index past deals, agents retrieve similar past negotiations to calibrate opening offers. | 🟡 P2 stretch | Not built. Optional, explicitly a stretch goal in the plan, not required for the core submission. |
@@ -485,41 +520,64 @@ promised, not a guess. Full sponsor decision table, verbatim from
 | **Astropods** | Agent deploy platform. | none | free tier | — | ⚪ Skip (explicit, Render used instead) | Not needed. |
 | **Postman** | API platform. | none | free | Use PayPal's public collection for sandbox exploration; publish our own collection. | ⚪ Dev-only | Not done, low priority — publishing a Postman collection for the API is a nice-to-have, not a sponsor prize requirement (no prize listed for Postman in the plan). |
 
-#### The one real, concrete gap: AG Grid Studio "Merchant Ledger" + "Ledger Agent" — **not built on either side**
+#### The narrowed gap: AG Grid Studio's actual UI — **the data side is done; the grid/widget library itself is not**
 
 This was planned as a **✅ Core** sponsor integration (not optional), with its
 own dedicated screen (`plan.md` §8.5 screen 7: "Merchant Ledger (AG Studio):
 KPIs and widgets, with the 'Ask your ledger' agent") and its own prize
-category (AG Grid: $5k/$2k/$1k×3). It is 100% unbuilt today — what exists
-instead is a **look-alike, not the real thing**:
-`frontend/src/components/react/LedgerAsk.tsx` (UI copy literally says "Ask
-your ledger") does local keyword-matching against a local array, not AG
-Grid's Studio Agent Framework and not a real LLM call (already flagged
-above, under "Frontend — pending"); `frontend/src/lib/ledger.ts`'s
-`computeLedger()` is a 321-line pure function running entirely client-side
-over local IndexedDB data, not an AG Grid data engine. **Nothing in either
-codebase imports `ag-grid-*`, calls PayPal's reporting tools, or references
-AG Studio.** Here is the exact, full spec straight from `plan.md`, for
-whoever picks this up:
+category (AG Grid: $5k/$2k/$1k×3). As of 2026-10-21, the **data and logic
+side is fully real and verified live**:
 
-**1. What it needs from PayPal (backend, via the Agent Toolkit — `plan.md:523`):**
-- `list_transactions` — the merchant's transaction history from PayPal itself (not just this app's own `orders`/`negotiations` tables) — real settled-payment data, the point being the ledger is grounded in PayPal's own records.
-- `get_merchant_insights` — PayPal's own business-intelligence metrics.
-- `list_disputes` — feeds a disputes widget if time allows; lower priority than the two above.
-- These are already-available tools in `@paypal/agent-toolkit` (npm) / the PayPal MCP server (`npx -y @paypal/mcp --tools=all`, or in-process via the toolkit) — no new PayPal-side setup beyond what checkout already needs, just enabling the `reporting` tool group (`configuration.actions.reporting = { list: true }` style, per the toolkit's `configuration.actions` object described in `plan.md` §3.1).
+- Backend: `GET /v1/ledger` (full grid rows + KPIs + widget aggregates —
+  `marginByItem`, `revenueByItem`, `fairnessHistogram`, `dealFunnel`, all
+  already computed server-side in `apps/api/src/ledger.ts`), `GET
+  /v1/ledger/summary` (KPIs alone), and `POST /v1/ledger/ask` (a real Ledger
+  Agent — `packages/llm/src/ledger-agent.ts` — grounded in the ledger data
+  plus PayPal's `get_merchant_insights` reporting tool when PayPal keys are
+  configured, `source: 'hybrid'|'heuristic'|'paypal'` so the caller knows
+  which).
+- Frontend: `frontend/src/lib/backend.ts` has typed clients for all three
+  (`getLedger`, `getLedgerSummary`, `askLedger`); `LedgerDashboard.tsx`
+  shows a real "Live from your shop" KPI strip (revenue, margin kept, deals
+  won, avg. fairness) above the existing local-estimate dashboard;
+  `LedgerAsk.tsx`'s "Ask your ledger" calls the real agent and shows a
+  source badge, falling back to its old local keyword-matcher only when
+  there's no token/shop yet.
 
-**2. What the backend needs to build (new):**
-- `GET /v1/ledger/*` — a small family of data-engine endpoints for AG Studio to bind to (the exact sub-routes are AG Studio's own data-source contract; start from the AG Grid boilerplate linked below to see the expected shape — don't hand-design this blind). At minimum: a deals/orders feed shaped for a grid (reuse the existing `shop_items`/`orders`/`negotiations` tables this project already has — `GET /v1/shops/me/deals` already built this session is the closest existing analog and could likely be extended/reused rather than built from scratch), plus whatever aggregate/KPI shape AG Studio's widgets expect (margin kept vs. list, fairness-score distribution, deal funnel — see `plan.md` §7.2 item 6 and §8.5 screen 7 for the exact KPI list).
-- A "Ledger Agent" backend tool-use loop: takes a natural-language question ("show deals under floor this week"), calls the PayPal reporting tools above (plus/instead of the local ledger data), and returns something AG Studio's Studio Agent Framework can render as a widget. `backend/packages/llm` already exists and is wired for negotiation narration — this is the natural place to add the ledger-agent tool loop, per this doc's existing note on "Ask your ledger" under "More missing APIs" above.
-- Auth/scoping: ledger data is seller-private (a vendor's own deals/margins), so these routes need the same owner-only auth pattern already used for `GET /v1/shops/me` and `GET /v1/shops/me/deals` — not public.
+**What's actually still missing is narrower than before: the AG Grid/AG
+Studio library itself was never installed, and its themed grid/widget
+screen was never built** — `frontend/src/components/vendor/LedgerDashboard.tsx`
+is still the pre-existing local-computation dashboard (`lib/ledger.ts`'s
+`computeLedger()`) with a real-data strip added on top, not an AG Grid
+Studio embed. `GET /v1/ledger`'s `widgets` object (margin-by-item bars, a
+fairness histogram, the deal funnel) is returned by the backend today and
+sitting unused on the frontend — exactly the shape AG Studio's widgets
+would bind to. For whoever picks up the actual AG Grid UI work:
 
-**3. What the frontend needs to build (new, blocked on the backend above):**
-- Install `ag-grid-*` + AG Studio per the official boilerplate: **`paypaldev/hackathon-paypal-ag-grid-boilerplate`** (GitHub) — `plan.md` explicitly says to review this boilerplate before starting (§12.6 "Immediate next actions": *"Review `paypaldev/hackathon-paypal-ag-grid-boilerplate` now. Delay starting the AG trial until about Oct 20"* — the 45-day trial license timing matters for whether it's still live at judging).
-- A new Merchant Ledger screen/route (`plan.md` lists it as its own key screen, #7 of 8) replacing/augmenting today's `/app/seller/ledger` page, themed to match the app's existing design tokens (`plan.md:276`: *"Custom theme and widgets to match the design system (the sponsor prize judges polish)"*).
-- Rewire `LedgerAsk.tsx`'s `respond(q)` from local keyword-matching to actually calling the new Ledger Agent backend endpoint.
-- `computeLedger()`'s local KPI math could stay as the no-backend fallback (same dual-path pattern as everything else wired this session), with the AG Studio widgets as the real, backend-grounded version once a seller has a real shop + real PayPal transactions.
+**1. What it needs from PayPal (backend, already available):** `list_transactions`,
+`get_merchant_insights`, `list_disputes` — the first two are wired
+(`backend/packages/paypal/src/reporting.ts`, used by `/v1/ledger/ask`'s
+`externalFacts` hook when PayPal keys are set); `list_disputes` is not yet
+called anywhere, lowest priority of the three.
 
-**4. Why this wasn't built yet:** every other backend pass and frontend
+**2. What's left to build (frontend only now):**
+- Install `ag-grid-*` + AG Studio per the official boilerplate:
+  **`paypaldev/hackathon-paypal-ag-grid-boilerplate`** (GitHub) — `plan.md`
+  explicitly says to review this boilerplate before starting (§12.6
+  "Immediate next actions": *"Review `paypaldev/hackathon-paypal-ag-grid-boilerplate`
+  now. Delay starting the AG trial until about Oct 20"* — the 45-day trial
+  license timing matters for whether it's still live at judging).
+- A themed Merchant Ledger screen bound to `GET /v1/ledger`'s existing
+  `rows`/`widgets`/`kpis` (no new backend work needed for this part) —
+  replacing or sitting alongside today's `/app/seller/ledger` page, themed
+  to match the app's existing design tokens (`plan.md:276`: *"Custom theme
+  and widgets to match the design system (the sponsor prize judges polish)"*).
+- Point `LedgerAsk.tsx`'s rendering at AG Studio's Studio Agent Framework
+  instead of the current plain-text answer card, if claiming the full
+  sponsor integration (not required for the data/logic to be real — that
+  part already works).
+
+**3. Why the UI piece wasn't built yet:** every other backend pass and frontend
 wiring pass this project has gone through was prioritized around the
 product's structural correctness first (real auth → real shop/inventory →
 real basket/negotiation/payment/orders — all now done and verified, see
