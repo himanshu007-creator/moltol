@@ -127,7 +127,12 @@ style. Auth endpoints are rate-limited per client IP, baskets per user.
 
 The original single-negotiation demo (`POST /v1/negotiations` with a `query` and
 `maxTotalCents` against a market-derived shop, then `…/checkout`, `…/capture`,
-`…/proof`, `…/events`) still works as before.
+`…/proof`, `…/events`) still works as before, and — like a basket line — always
+lands on a price: the derived shop's sealed floor is capped just below the
+buyer's own ceiling (`STANDALONE_FLOOR_HEADROOM`), so a zone of agreement exists
+by construction. Caveat: when the budget sits below the market floor, the deal
+closes at the buyer's ceiling and the proof's fairness number reflects the clamp
+rather than a real haggle.
 
 ## PayPal integration
 

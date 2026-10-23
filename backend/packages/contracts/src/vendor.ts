@@ -107,9 +107,19 @@ export const CreateShopItemRequestSchema = z.object({
   name: z.string().min(1).max(80),
   emoji: z.string().max(8).optional(),
   sellCents: z.number().int().positive(),
-  floorCents: z.number().int().positive(),
+  /** 0 is allowed (giveaway pricing); must stay ≤ sellCents — the API enforces that. */
+  floorCents: z.number().int().nonnegative(),
+  /** What the vendor paid. Seller-only; never included in a buyer response. */
+  costCents: z.number().int().nonnegative().optional(),
+  category: z.string().max(30).optional(),
   quantity: z.number().min(0).max(1_000_000).optional(),
+  /** Low-stock alert threshold in `unit`; 0 (default) disables the hint. */
+  lowStockAt: z.number().min(0).max(1_000_000).optional(),
   unit: z.string().max(20).optional(),
+  /** Required in spirit when `unit = 'custom'` — the API rejects a custom unit without it. */
+  customUnit: z.string().max(20).optional(),
+  /** Grams (mass) or millilitres (volume) per unit, for `pack`/`custom`. */
+  packSize: z.number().positive().max(1_000_000).optional(),
   hindiName: z.string().max(80).optional(),
 });
 export type CreateShopItemRequest = z.infer<typeof CreateShopItemRequestSchema>;
@@ -117,7 +127,7 @@ export type CreateShopItemRequest = z.infer<typeof CreateShopItemRequestSchema>;
 export const UpdateShopItemRequestSchema = CreateShopItemRequestSchema.partial();
 export type UpdateShopItemRequest = z.infer<typeof UpdateShopItemRequestSchema>;
 
-/** Owner view — includes `floorCents`. Never sent to a buyer. */
+/** Owner view — includes `floorCents` and `costCents`. Never sent to a buyer. */
 export const ShopItemSchema = z.object({
   id: z.string().uuid(),
   shopId: z.string().uuid(),
@@ -125,18 +135,27 @@ export const ShopItemSchema = z.object({
   emoji: z.string().nullable(),
   sellCents: z.number().int(),
   floorCents: z.number().int(),
+  costCents: z.number().int().nullable().nullish(),
+  category: z.string().nullable().nullish(),
   quantity: z.number().nullable(),
+  lowStockAt: z.number().nullable().nullish(),
+  archived: z.boolean().nullish(),
   unit: z.string().nullable(),
+  customUnit: z.string().nullable().nullish(),
+  packSize: z.number().nullable().nullish(),
   hindiName: z.string().nullable(),
 });
 export type ShopItem = z.infer<typeof ShopItemSchema>;
 
-/** Buyer-facing view — `floorCents` stripped (AGENTS.md: a side's private number never reaches the other side). */
-export const PublicShopItemSchema = ShopItemSchema.omit({ floorCents: true });
+/** Buyer-facing view — `floorCents`/`costCents` stripped (AGENTS.md: a side's private number never reaches the other side). */
+export const PublicShopItemSchema = ShopItemSchema.omit({
+  floorCents: true,
+  costCents: true,
+});
 export type PublicShopItem = z.infer<typeof PublicShopItemSchema>;
 
 export function toPublicShopItem(item: ShopItem): PublicShopItem {
-  const { floorCents: _floorCents, ...rest } = item;
+  const { floorCents: _floorCents, costCents: _costCents, ...rest } = item;
   return rest;
 }
 
