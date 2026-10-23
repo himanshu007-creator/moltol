@@ -19,6 +19,16 @@ import type { EngineDeps, TurnContext, TurnGenerator, TurnSuggestion } from "./t
 /** How fast the shop concedes when it has no persona of its own (standalone negotiations). */
 export const DEFAULT_SHOP_BETA = 0.8;
 
+/**
+ * A standalone negotiation's sealed shop floor is capped at this share of the
+ * buyer's own ceiling, so a zone of agreement always exists and the demo always
+ * lands on a price (the same invariant basket lines get from ceiling = list ≥
+ * floor). Below it, the salt-random floor could exceed the budget and the
+ * haggle would end in a walk-away (`no_zopa`) — non-deterministically, since
+ * the floor is drawn per negotiation.
+ */
+export const STANDALONE_FLOOR_HEADROOM = 0.9;
+
 /** A buyer never opens above this share of the shop's list price on a basket line. */
 const BASKET_OPENING_CAP = 0.85;
 
@@ -133,9 +143,15 @@ export async function loadContext(negotiationId: string, deps: EngineDeps): Prom
     }));
     // The counterparty is derived from its own secret salt, so its floor can't be
     // computed from public data (the negotiation id, the market) before the reveal.
+    // The sealed floor is capped just below the buyer's own ceiling so a ZOPA
+    // exists by construction — this demo always lands on a price.
     shop = await ensureSealed(deps, n, "shop", (saltHex) => {
       const derived = deriveShop(saltHex, market);
-      return { limitCents: derived.floorCents, domainCents: derived.domainCents };
+      const floorCents = Math.min(
+        derived.floorCents,
+        Math.floor(n.maxTotalCents * STANDALONE_FLOOR_HEADROOM),
+      );
+      return { limitCents: floorCents, domainCents: derived.domainCents };
     });
     shopOpen = shop.domainCents ?? deriveShop(n.id, market).openCents;
   }

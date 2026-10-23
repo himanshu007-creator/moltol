@@ -96,8 +96,8 @@ with dates).
 
 ### Backend — pending
 
-Done this session (2026-10-18, PR **#5** `feat/backend-frontend-inr-fx-snap-feed`, deployed live at
-`https://api.13.238.88.61.nip.io`) — these were all pending above and are now built:
+Done this session (2026-10-18, PR **#5** `feat/backend-frontend-inr-fx-snap-feed`) — these were all
+pending above and are now built:
 `GET /v1/ledger` + `/v1/ledger/summary` + `POST /v1/ledger/ask` (AG Grid "Merchant Ledger"/"Ledger Agent"
 data side, `LedgerAsk` LLM fallback included), `GET /v1/insights/buyer`, stock reservations between
 checkout and capture (`0006_stock_reservations` + worker sweeper), payment retry
@@ -117,11 +117,21 @@ Still pending:
 - [ ] **`ALLOW_MOCK_PAYPAL`/sandbox buyer approval** still needs a manual click for a real PayPal run.
 - [ ] **SerpAPI currency caveat:** SerpAPI results come back in the Google-locale currency (often USD),
   which can mismatch INR shops once the key is live — normalise or filter by `currency` when enabling.
-- [ ] **"Modern" inventory model** (cost/min price, low-stock threshold, archive, bulk edit, CSV import)
-  — deliberately out of scope, different/bigger shape than the `shop_items` table that's live today.
-  Only build if that richer vendor console is actually needed.
-- [ ] **No-deal semantics for the standalone single-query demo** (`/v1/negotiations/*`, not the basket
-  flow — baskets always converge). Low priority since the live buyer flow doesn't go through it.
+- [ ] **"Modern" inventory model** — **partially done (local, uncommitted):** schema + contracts landed
+  (migration `0010_modern_inventory`: `shop_items` gains `cost_cents`, `category`, `low_stock_at`,
+  `archived`, `custom_unit`, `pack_size`; new `stock_adjustments` audit table; `CreateShopItemRequest`/
+  `ShopItem` extended, `costCents` stripped from `PublicShopItemSchema`, `floorCents` relaxed to
+  nonnegative). **Still pending:** repo/views wiring, the adjust/bulk/archive endpoints, and the FE's
+  "save to backend" step (FE↔BE field mapping decided: map on the FE — `listCents↔sellCents`,
+  `minCents↔floorCents` — no BE rename). Soft-delete decided: `DELETE …/items/:id` sets `archived`.
+- [x] ~~**No-deal semantics for the standalone single-query demo**~~ — **resolved (2026-10-21, local,
+  uncommitted):** Option A — the standalone demo always converges. `engine/src/steps.ts` caps the
+  derived shop's sealed floor at `STANDALONE_FLOOR_HEADROOM` (0.9) × the buyer's ceiling, so a ZOPA
+  exists by construction (same shape as a basket line's reserve). The `no_zopa`/`no_deal` vocabulary
+  stays in the contract (now unreachable in the agent-vs-agent path; the human path never walked away
+  anyway) — pruning it is a separate, ordered BE-then-FE cleanup. Engine test rewritten accordingly.
+  Caveat (documented in `backend/README.md`): a budget below the market floor closes at the buyer's
+  ceiling and the fairness number reflects the clamp.
 
 ### Frontend — pending
 

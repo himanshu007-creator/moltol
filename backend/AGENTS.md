@@ -21,3 +21,14 @@ These are non-negotiable. Break one and the hackathon submission is invalid.
 6. **Contracts are the source of truth.** Types shared with the frontend live in `packages/contracts`; change them there first, then conform the backend.
 7. **Never commit secrets.** `.env`, tfstate/tfvars, and real keys are gitignored. `gitleaks` runs in CI.
 8. **Verify before you claim done.** `pnpm build && pnpm typecheck && pnpm test && pnpm lint` must pass.
+
+## Credentials — always confirm first
+
+Before **any** action that uses real credentials — AWS (`aws`, `terraform apply`), GitHub (`gh`, `git push`), PayPal, SSH keys, npm tokens, or anything reading secrets from `.env`/`terraform.tfvars` — stop and ask the user to confirm, stating: which credential/profile, which account/target, and what the action will do. Read-only calls (`describe-*`, `git status`, `gh pr view`) don't need confirmation. Destructive or write actions (terminate, delete, release, apply, push, PR create, deploy) always do, even if previously approved in the same session.
+
+## AWS account — moltol only
+
+- **Always** `AWS_PROFILE=moltol` (account `216105309633`, user `sanuj-hackathon`), region **`ap-southeast-2`** only (SCP `p-fv5ewydm` denies others).
+- **Never** use the default/local `aws` profile or any other account for anything moltol-related — instances, EIPs, IAM, S3, debugging. Another account was used by mistake once; every moltol resource there was terminated/deleted on 2026-10-18. Do not recreate anything outside `216105309633`.
+- Local `terraform.tfstate` may still reference a long-terminated instance — delete stale state before a fresh apply rather than trusting it.
+- `infra/terraform/terraform.tfvars` holds secrets (PayPal sandbox, SEAL_KEY) and is gitignored — never commit, never paste into another account.

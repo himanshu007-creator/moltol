@@ -258,18 +258,22 @@ describe("runHaggle (standalone negotiation)", () => {
     expect(outcome.agreedPriceCents!).toBeLessThanOrEqual(asks[asks.length - 1]!.priceCents!);
   });
 
-  it("walks away without naming its floor when there is no zone of agreement", async () => {
+  it("always lands on a price, even when the budget is far below the market", async () => {
+    // The standalone shop's sealed floor is capped below the buyer's ceiling
+    // (STANDALONE_FLOOR_HEADROOM), so a ZOPA exists by construction and the
+    // demo can't flip to a walk-away run-to-run.
     const store = new FakeStore();
     const n = store.add(baseNegotiation({ maxTotalCents: 500, roundsMax: 4 }));
     const outcome = await runHaggle(n.id, deps(store));
-    expect(outcome.state).toBe("no_deal");
+    expect(outcome.state).toBe("agreed");
     const floor = store.sealed.get(`${n.id}:shop`)!.limitCents;
+    expect(floor).toBeLessThan(500);
     const turns = turnsOf(store.log(n.id));
-    const last = turns[turns.length - 1]!;
-    expect(last.kind).toBe("walkaway");
-    expect(last.priceCents).toBeUndefined();
+    // even a one-paise budget closes: the shop accepts whatever the buyer can pay.
+    expect(turns.some((t) => t.kind === "walkaway")).toBe(false);
     expect(turns.some((t) => t.actor === "shop" && t.priceCents === floor)).toBe(false);
-    expect(store.negotiations.get(n.id)!.state).toBe("no_deal");
+    expect(store.negotiations.get(n.id)!.state).toBe("agreed");
+    expect(outcome.agreedPriceCents!).toBeLessThanOrEqual(500);
   });
 
   it("publishes every verdict, and never the number a rejection turned down", async () => {
