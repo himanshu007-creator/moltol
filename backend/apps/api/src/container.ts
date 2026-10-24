@@ -7,7 +7,7 @@ import {
 } from "@moltol/contracts";
 import type { EngineDeps, TurnGenerator } from "@moltol/engine";
 import { createTurnGenerator } from "@moltol/llm";
-import { createMarketProvider } from "@moltol/market";
+import { createMarketProvider, type MarketConfig } from "@moltol/market";
 import { PayPalClient, captureOrder, createOrder, type PayPalEnv } from "@moltol/paypal";
 import { createDb, MoltolStore } from "@moltol/store";
 import { paypalConfigured, type Env } from "./env";
