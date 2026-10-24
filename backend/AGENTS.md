@@ -28,7 +28,7 @@ Before **any** action that uses real credentials — AWS (`aws`, `terraform appl
 
 ## AWS account — moltol only
 
-- **Always** `AWS_PROFILE=moltol` (account `216105309633`, user `sanuj-hackathon`), region **`ap-southeast-2`** only (SCP `p-fv5ewydm` denies others).
-- **Never** use the default/local `aws` profile or any other account for anything moltol-related — instances, EIPs, IAM, S3, debugging. Another account was used by mistake once; every moltol resource there was terminated/deleted on 2026-10-18. Do not recreate anything outside `216105309633`.
+- **Always** `AWS_PROFILE=moltol` and region **`ap-southeast-2`** only (the account's SCP denies other regions).
+- **Never** use the default/local `aws` profile or any other AWS account for anything moltol-related — instances, EIPs, IAM, S3, debugging. Create nothing outside the project account.
 - Local `terraform.tfstate` may still reference a long-terminated instance — delete stale state before a fresh apply rather than trusting it.
 - `infra/terraform/terraform.tfvars` holds secrets (PayPal sandbox, SEAL_KEY) and is gitignored — never commit, never paste into another account.
