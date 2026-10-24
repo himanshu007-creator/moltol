@@ -105,6 +105,7 @@ export function createContainer(
     createMarketProvider({
       channel3ApiKey: env.CHANNEL3_API_KEY || undefined,
       serpapiApiKey: env.SERPAPI_API_KEY || undefined,
+      fxUsdPerInr: env.FX_USD_PER_INR,
     });
   const llm =
     overrides.llm ??

@@ -12,6 +12,7 @@ export interface MarketConfig {
   channel3ApiKey?: string | undefined;
   channel3BaseUrl?: string | undefined;
   serpapiApiKey?: string | undefined;
+  fxUsdPerInr?: number | undefined;
   timeoutMs?: number | undefined;
 }
 
@@ -28,7 +29,8 @@ export function createMarketProvider(config: MarketConfig = {}): MarketProvider 
           query,
           currency,
           apiKey: config.channel3ApiKey,
-          baseUrl: config.channel3BaseUrl ?? "https://api.channel3.com",
+          baseUrl: config.channel3BaseUrl ?? "https://api.trychannel3.com",
+          ...(config.fxUsdPerInr !== undefined ? { fxUsdPerInr: config.fxUsdPerInr } : {}),
           ...timeout,
         });
         if (live) return live;
