@@ -77,7 +77,8 @@ export function shopItemView(row: ShopItemRow): ShopItem {
     costCents: row.costCents ?? null,
     category: row.category ?? null,
     quantity: row.quantity,
-    lowStockAt: row.lowStockAt !== null && row.lowStockAt !== undefined ? Number(row.lowStockAt) : null,
+    lowStockAt:
+      row.lowStockAt !== null && row.lowStockAt !== undefined ? Number(row.lowStockAt) : null,
     archived: row.archived ?? false,
     unit: row.unit,
     customUnit: row.customUnit ?? null,

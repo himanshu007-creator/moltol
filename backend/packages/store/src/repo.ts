@@ -1148,8 +1148,12 @@ export class MoltolStore {
       .values({
         ...rest,
         ...(quantity !== undefined && quantity !== null ? { quantity: String(quantity) } : {}),
-        ...(lowStockAt !== undefined && lowStockAt !== null ? { lowStockAt: String(lowStockAt) } : {}),
-        ...(packSize !== undefined ? { packSize: packSize === null ? null : String(packSize) } : {}),
+        ...(lowStockAt !== undefined && lowStockAt !== null
+          ? { lowStockAt: String(lowStockAt) }
+          : {}),
+        ...(packSize !== undefined
+          ? { packSize: packSize === null ? null : String(packSize) }
+          : {}),
       })
       .returning();
     return toShopItemRow(rows[0]!);
