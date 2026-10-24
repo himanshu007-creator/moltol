@@ -4,7 +4,6 @@ import { ClientRouter } from 'astro:transitions';
 import Header from '@/components/astro/Header.astro';
 import Footer from '@/components/astro/Footer.astro';
 import Shell from '@/components/Shell.tsx';
-import DemoProvisioner from '@/components/react/DemoProvisioner.tsx';
 
 interface Props {
   title?: string;
@@ -72,13 +71,10 @@ const {
             document.documentElement.dataset.auth = '1';
           }
           // Every /app/* page (shell=true) needs a real session. A reload, a
-          // bookmark, or the back button after logout must not show stale
-          // content with no nav — redirect before paint. But a hint that has
-          // never been written at all (no key, not "loggedIn: false") means a
-          // true first visit, possibly landing straight on an /app/* URL: let
-          // that through so the first-visit auto-login (DemoProvisioner) gets
-          // a chance to run, same as landing on / first would.
-          if (requiresAuth && !loggedIn && hint !== null) {
+          // bookmark, the back button after logout, or a true first visit
+          // landing straight on an /app/* URL must not show stale content
+          // with no nav — redirect to login before paint in every case.
+          if (requiresAuth && !loggedIn) {
             location.replace('/login');
           }
         } catch (e) {}
@@ -97,7 +93,6 @@ const {
       Skip to content
     </a>
 
-    <DemoProvisioner client:load />
     {chrome && <Header shell={shell} />}
     {shell && <Shell client:load />}
     <main id="main" class="min-h-[60vh]">

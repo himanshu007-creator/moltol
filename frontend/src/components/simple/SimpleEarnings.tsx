@@ -1,11 +1,40 @@
+import { useEffect, useState } from 'react';
 import { useSimple } from '@/stores/simple';
+import { useSession } from '@/stores/session';
+import { getLedger } from '@/lib/backend';
 import { s, nativeRupaye, nativeNum } from '@/lib/simple/strings';
-import { SELLER_DAYS } from '@/lib/mock/seeds';
+
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** Real earnings per weekday, last 7 days, from the backend's Merchant Ledger. */
+function useWeekEarnings(): number[] | null {
+  const token = useSession((s) => s.token);
+  const [days, setDays] = useState<number[] | null>(null);
+  useEffect(() => {
+    setDays(null);
+    if (!token) return;
+    let cancelled = false;
+    getLedger(token, '7d')
+      .then((ledger) => {
+        if (cancelled) return;
+        const buckets = new Array(7).fill(0) as number[];
+        for (const r of ledger.rows) {
+          if (!r.won || r.lineCents == null) continue;
+          buckets[new Date(r.ts).getDay()] += r.lineCents;
+        }
+        setDays(buckets);
+      })
+      .catch(() => { if (!cancelled) setDays(null); });
+    return () => { cancelled = true; };
+  }, [token]);
+  return days;
+}
 
 export default function SimpleEarnings() {
   const { todayEarningsCents, dealsLog, language } = useSimple();
   const dict = s(language);
-  const max = Math.max(...SELLER_DAYS.map((d) => d.earnCents));
+  const week = useWeekEarnings();
+  const max = week ? Math.max(1, ...week) : 1;
   const top = [...dealsLog].sort((a, b) => b.cents - a.cents).slice(0, 3);
 
   return (
@@ -18,14 +47,18 @@ export default function SimpleEarnings() {
       </div>
 
       <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-ink-faint">{dict.u.earningsWeek}</h2>
-      <div className="mt-3 flex h-40 items-end gap-2 surface p-4">
-        {SELLER_DAYS.map((d) => (
-          <div key={d.d} className="flex flex-1 flex-col items-center gap-1">
-            <span className="w-full rounded-full bg-chili/80" style={{ height: `${Math.max(6, (d.earnCents / max) * 100)}%` }} />
-            <span className="text-[10px] text-ink-faint">{d.d}</span>
-          </div>
-        ))}
-      </div>
+      {week ? (
+        <div className="mt-3 flex h-40 items-end gap-2 surface p-4">
+          {week.map((cents, i) => (
+            <div key={i} className="flex flex-1 flex-col items-center gap-1">
+              <span className="w-full rounded-full bg-chili/80" style={{ height: `${Math.max(6, (cents / max) * 100)}%` }} />
+              <span className="text-[10px] text-ink-faint">{DAY_LABELS[i]}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-3 surface p-4 text-sm text-ink-faint">No real sales yet this week.</p>
+      )}
 
       {top.length > 0 && (
         <>

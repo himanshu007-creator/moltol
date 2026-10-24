@@ -28,10 +28,10 @@ export default function BazaarTheatre() {
   if (bz.stage === 'idle') {
     return (
       <div className="flex flex-col items-center gap-3 surface p-8 text-center">
-        <span className="text-5xl">🤝</span>
-        <p className="text-lg font-semibold text-ink">No live haggle yet</p>
+        <span className="text-5xl">{bz.error ? '⚠️' : '🤝'}</span>
+        <p className="text-lg font-semibold text-ink">{bz.error ?? 'No live haggle yet'}</p>
         <a href="/app/cart" className="rounded-full bg-chili px-5 py-2.5 text-sm font-bold text-white">
-          Pick items in your basket →
+          {bz.error ? 'Back to your basket →' : 'Pick items in your basket →'}
         </a>
       </div>
     );

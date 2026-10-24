@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useVenue, DEMO_SLOT_ID } from '@/stores/venue';
+import { useVenue } from '@/stores/venue';
+import { useSession } from '@/stores/session';
 import { cn } from '@/lib/cn';
 
 /**
@@ -8,8 +9,10 @@ import { cn } from '@/lib/cn';
  * The same store drives the buyer map, so flips show up there straight away
  * (and in other tabs via BroadcastChannel).
  */
-export default function VendorStatusToggle({ stallId = DEMO_SLOT_ID, compact = false }: { stallId?: string; compact?: boolean }) {
-  const st = useVenue((s) => s.stalls[stallId]);
+export default function VendorStatusToggle({ stallId, compact = false }: { stallId?: string; compact?: boolean }) {
+  const ownShopId = useSession((s) => s.shopId);
+  const id = stallId ?? ownShopId;
+  const st = useVenue((s) => (id ? s.stalls[id] : undefined));
   const open = st?.open !== false;
   const toggle = useVenue((s) => s.toggle);
   const closeIn = useVenue((s) => s.closeIn);
@@ -27,6 +30,8 @@ export default function VendorStatusToggle({ stallId = DEMO_SLOT_ID, compact = f
 
   const mins = pending ? Math.max(1, Math.ceil((pending - Date.now()) / 60_000)) : 0;
 
+  if (!id) return null; // no real shop yet — nothing to toggle
+
   if (compact) {
     // header pill: one line, thumb-sized, same store
     return (
@@ -35,7 +40,7 @@ export default function VendorStatusToggle({ stallId = DEMO_SLOT_ID, compact = f
         role="switch"
         aria-checked={open}
         aria-label={open ? 'Your stall is open. Tap to close it for buyers.' : 'Your stall is closed. Tap to open it for buyers.'}
-        onClick={() => toggle(stallId)}
+        onClick={() => toggle(id)}
         className={cn(
           'flex min-h-11 w-full items-center justify-between gap-3 rounded-2xl px-3 text-sm font-semibold',
           open ? 'bg-teal/15 text-teal' : 'bg-chili/15 text-chili',
@@ -56,7 +61,7 @@ export default function VendorStatusToggle({ stallId = DEMO_SLOT_ID, compact = f
         role="switch"
         aria-checked={open}
         aria-label={open ? 'Your stall is open. Tap to close it for buyers.' : 'Your stall is closed. Tap to open it for buyers.'}
-        onClick={() => toggle(stallId)}
+        onClick={() => toggle(id)}
         className={cn(
           'flex w-full min-h-14 items-center gap-3 rounded-2xl border p-3 text-left transition active:scale-[0.99]',
           open ? 'border-teal/40 bg-teal/10' : 'border-chili/40 bg-chili/10',
@@ -85,17 +90,17 @@ export default function VendorStatusToggle({ stallId = DEMO_SLOT_ID, compact = f
         <div className="flex flex-wrap gap-2">
           {open
             ? [15, 60].map((m) => (
-                <button key={m} type="button" onClick={() => closeIn(stallId, m)} className="min-h-11 rounded-full bg-paper-3 px-4 text-sm font-medium text-ink">
+                <button key={m} type="button" onClick={() => closeIn(id, m)} className="min-h-11 rounded-full bg-paper-3 px-4 text-sm font-medium text-ink">
                   Close in {m} min
                 </button>
               ))
             : [30, 120].map((m) => (
-                <button key={m} type="button" onClick={() => reopenIn(stallId, m)} className="min-h-11 rounded-full bg-paper-3 px-4 text-sm font-medium text-ink">
+                <button key={m} type="button" onClick={() => reopenIn(id, m)} className="min-h-11 rounded-full bg-paper-3 px-4 text-sm font-medium text-ink">
                   Reopen in {m} min
                 </button>
               ))}
           {pending && (
-            <button type="button" onClick={() => setOpen(stallId, open)} className="min-h-11 rounded-full px-4 text-sm font-medium text-indigo underline">
+            <button type="button" onClick={() => setOpen(id, open)} className="min-h-11 rounded-full px-4 text-sm font-medium text-indigo underline">
               Cancel timer
             </button>
           )}

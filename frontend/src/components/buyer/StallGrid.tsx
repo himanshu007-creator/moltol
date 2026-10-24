@@ -5,10 +5,10 @@ import { useVenue, isOpen } from '@/stores/venue';
 import { useLiveShops } from '@/stores/inventory';
 import { useRealShopProducts, useDirectShopFallback } from '@/stores/realShops';
 import { formatMoney } from '@/lib/money';
-import { compsOf } from '@/lib/mock/market';
+import { compsOf } from '@/lib/comps';
 import { roundQty, stepForLabel, UNITS } from '@/lib/units';
 import { cn } from '@/lib/cn';
-import type { InventoryItem, Shop } from '@/lib/mock/seeds';
+import type { InventoryItem, Shop } from '@/lib/types';
 
 /** One stall: products as price cards, closed state, bundle deal, and a sticky basket bar. */
 export default function StallGrid({ id }: { id?: string }) {
@@ -67,6 +67,9 @@ export default function StallGrid({ id }: { id?: string }) {
           <p className="t-label !text-[#5b3200]">{shop.kind} · {shop.distanceM} m · {session.activeRole === 'buyer' ? 'buyer view' : 'seller view'}</p>
           <h1 className="t-h1 !text-[#23180a]">{shop.name.en}</h1>
         </div>
+        {shop.locationUpdatedAt && Date.now() - shop.locationUpdatedAt < 2 * 60_000 && (
+          <span className="pill bg-paper/80 text-marigold">📡 live</span>
+        )}
         <span className={cn('pill', open ? 'bg-paper/80 text-teal' : 'bg-paper/80 text-chili')}>{open ? '● Open now' : '● Closed'}</span>
       </header>
 

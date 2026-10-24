@@ -1,10 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { idbStorage } from '@/lib/idb';
-import { SHOPS } from '@/lib/mock/seeds';
-
-/** The demo seller's own stall: the one the vendor header and Simple Mode toggle. */
-export const DEMO_SLOT_ID = 'demo-01';
 
 export interface StallStatus {
   open: boolean;
@@ -21,12 +17,6 @@ const CHANNEL = 'moltol-venue';
 // Demo sync: every tab shares this store, so a seller window and a buyer window
 // update live. Remote updates go through setState so they are not re-broadcast.
 const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(CHANNEL) : null;
-
-function seedStalls(): StallMap {
-  const out: StallMap = {};
-  for (const s of SHOPS) out[s.id] = { open: true };
-  return out;
-}
 
 export interface VenueState {
   /** every stall in the bazaar + whether it's open for discovery right now */
@@ -54,7 +44,7 @@ export const useVenue = create<VenueState>()(
         commit({ ...get().stalls, [shopId]: { ...cur, ...p } });
       };
       return {
-        stalls: seedStalls(),
+        stalls: {},
         setOpen: (shopId, open) => patch(shopId, { open, closeAt: null, reopenAt: null }),
         toggle: (shopId) => {
           const open = get().stalls[shopId]?.open ?? true;
@@ -76,7 +66,7 @@ export const useVenue = create<VenueState>()(
           }
           if (changed) commit(next);
         },
-        reset: () => commit(seedStalls()),
+        reset: () => commit({}),
       };
     },
     { name: 'moltol-venue', storage: createJSONStorage(() => idbStorage) },

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import 'leaflet/dist/leaflet.css';
 import { navigate } from 'astro:transitions/client';
-import { OSM_TILE_URL, OSM_ATTRIBUTION, type GeoPoint } from '@/lib/mock/discovery';
+import { OSM_TILE_URL, OSM_ATTRIBUTION, type GeoPoint } from '@/lib/geo';
 import { useI18n } from '@/stores/prefs';
 
 interface Pin {

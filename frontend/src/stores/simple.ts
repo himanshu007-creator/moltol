@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { idbStorage } from '@/lib/idb';
 import type { Locale, ItemId } from '@/lib/simple/strings';
+import type { ShopItem } from '@/lib/backend';
 
 export type SimpleUnit = 'kg' | '500g' | 'piece' | 'bunch';
 
@@ -23,30 +24,26 @@ export interface SimpleProduct {
 
 export type SimplePersona = 'charmer' | 'stoic' | 'storyteller';
 
-export const DEFAULT_PRODUCTS: Record<ItemId, number> = {
-  tomato: 4_000,
-  onion: 3_000,
-  potato: 3_000,
-  coriander: 2_000,
-  lemon: 1_000,
-  chilli: 3_000,
-  spinach: 2_000,
-  carrot: 4_000,
-  cauliflower: 3_000,
-  cabbage: 2_500,
-  brinjal: 3_500,
-  cucumber: 3_000,
-  capsicum: 6_000,
-  okra: 4_500,
-  garlic: 12_000,
-  ginger: 9_000,
-  peas: 8_000,
-  banana: 5_000,
-  apple: 12_000,
-  orange: 7_000,
-  mango: 15_000,
-  cust: 0,
-};
+const UNIT_MAP: Record<string, SimpleUnit> = { kg: 'kg', '500g': '500g', piece: 'piece', bunch: 'bunch' };
+
+/**
+ * A real backend item has no catalogue key — `id: 'cust'` is Simple Mode's
+ * existing escape hatch for a free-named product (already used whenever a
+ * seller types a name instead of picking from the vegetable catalogue), with
+ * `hindiName` doing double duty as "the display name override" regardless of
+ * language (see `SimplePrice.tsx`'s `item.hindiName || itemName(...)`).
+ */
+export function shopItemToSimpleProduct(item: ShopItem): SimpleProduct {
+  return {
+    id: 'cust',
+    hindiName: item.name,
+    sellCents: item.sellCents,
+    floorCents: item.floorCents,
+    quantity: item.quantity ?? undefined,
+    unit: (item.unit && UNIT_MAP[item.unit]) || 'piece',
+    backendItemId: item.id,
+  };
+}
 
 type HaggleStep = 'idle' | 'offer' | 'counter' | 'done' | 'waiting';
 type HaggleOutcome = 'accepted' | 'refused' | null;
@@ -89,12 +86,8 @@ interface SimpleStore {
   /** create (or update) a single listing — the shared product-creation path */
   addProduct: (product: SimpleProduct) => void;
   setPrice: (id: ItemId, sellCents: number, floorCents: number) => void;
-  /** Records the backend `shop_items` id a locally-added product was synced to. */
-  setBackendId: (id: ItemId, backendItemId: string) => void;
   setPersona: (persona: SimplePersona) => void;
   finishOnboarding: () => void;
-  /** Seed a ready-to-use demo stall, once (guarded by `onboarded`). Local, no-backend testing. */
-  provisionDemo: () => void;
   toggleMute: () => void;
   reset: () => void;
   setHaggle: (h: Partial<HaggleSession>) => void;
@@ -136,22 +129,8 @@ export const useSimple = create<SimpleStore>()(
         set({
           products: get().products.map((p) => (p.id === id ? { ...p, sellCents, floorCents } : p)),
         }),
-      setBackendId: (id, backendItemId) =>
-        set({
-          products: get().products.map((p) => (p.id === id ? { ...p, backendItemId } : p)),
-        }),
       setPersona: (persona) => set({ persona }),
       finishOnboarding: () => set({ onboarded: true }),
-      provisionDemo: () => {
-        if (get().onboarded) return;
-        const starter: ItemId[] = ['tomato', 'onion', 'potato', 'coriander'];
-        set({
-          onboarded: true,
-          stallName: 'Demo ki Dukaan',
-          stallEmoji: '🏪',
-          products: starter.map((id) => ({ id, sellCents: DEFAULT_PRODUCTS[id], floorCents: Math.round((DEFAULT_PRODUCTS[id] * 0.75) / 100) * 100 })),
-        });
-      },
       toggleMute: () => set({ mute: !get().mute }),
       reset: () => set(initialState),
       setHaggle: (h) => set({ haggle: { ...get().haggle, ...h } }),
