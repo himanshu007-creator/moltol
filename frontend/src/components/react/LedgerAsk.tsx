@@ -1,48 +1,16 @@
 import { useMemo, useState } from 'react';
-import { DEALS, totalCents } from '@/lib/deals';
-import { formatMoney } from '@/lib/money';
 import { askLedger, type LedgerAnswer } from '@/lib/backend';
 import { useSession } from '@/stores/session';
 import { button, input as inputCls, mono } from '@/lib/ui';
 import { cn } from '@/lib/cn';
 
-type Answer = { label: string; lines: Array<{ left: string; right: string }>; source?: LedgerAnswer['source'] };
-
-/** Local keyword-matching fallback — used when there's no real shop/token to ask the real Ledger Agent. */
-function respondLocally(q: string): Answer {
-  const s = q.toLowerCase();
-  if (s.includes('below') || s.includes('kam') || s.includes('down') || s.includes('discount')) {
-    const below = DEALS.filter((d) => d.soldCents < d.listCents);
-    return {
-      label: `${below.length} deals closed below list price today`,
-      lines: below.map((d) => ({
-        left: `${d.emoji} ${d.item}`,
-        right: formatMoney(d.soldCents),
-      })),
-    };
-  }
-  if (s.includes('top') || s.includes('best') || s.includes('sabse')) {
-    const top = [...DEALS].sort((a, b) => b.soldCents - a.soldCents).slice(0, 3);
-    return {
-      label: 'Your top sellers today',
-      lines: top.map((d) => ({ left: `${d.emoji} ${d.item}`, right: formatMoney(d.soldCents) })),
-    };
-  }
-  const total = totalCents(DEALS);
-  return {
-    label: 'Here’s the today picture',
-    lines: [
-      { left: 'Deals today', right: `${DEALS.length}` },
-      { left: 'Total today', right: formatMoney(total) },
-      { left: 'Avg. squeeze', right: '12% below list' },
-    ],
-  };
-}
+type Answer = { label: string; facts: string[]; source: LedgerAnswer['source'] };
 
 export default function LedgerAsk() {
   const token = useSession((s) => s.token);
   const [q, setQ] = useState('');
   const [answer, setAnswer] = useState<Answer | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
 
   const suggested = useMemo(
@@ -57,21 +25,17 @@ export default function LedgerAsk() {
   const ask = async (text: string) => {
     setQ(text);
     if (!token) {
-      setAnswer(respondLocally(text));
+      setError('Log in to ask your ledger.');
       return;
     }
     setAsking(true);
+    setError(null);
     try {
       const real = await askLedger(token, text);
-      setAnswer({
-        label: real.answer,
-        lines: real.facts.map((f) => ({ left: f, right: '' })),
-        source: real.source,
-      });
+      setAnswer({ label: real.answer, facts: real.facts, source: real.source });
     } catch {
-      // A seller with no real shop yet (404 no_shop) or an unreachable backend
-      // both fall back to the same local demo answer — never a dead end.
-      setAnswer(respondLocally(text));
+      setAnswer(null);
+      setError("Couldn't reach your ledger — set up your stall first, or try again.");
     } finally {
       setAsking(false);
     }
@@ -110,22 +74,21 @@ export default function LedgerAsk() {
         ))}
       </div>
 
+      {error && <p className="surface p-4 text-sm text-ink-faint">{error}</p>}
+
       {answer && (
         <div className="surface p-4">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm font-semibold text-ink">{answer.label}</p>
-            {answer.source && (
-              <span className="shrink-0 rounded-full bg-paper-3 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
-                {answer.source === 'hybrid' ? 'AI + your ledger' : answer.source === 'paypal' ? 'PayPal' : 'your ledger'}
-              </span>
-            )}
+            <span className="shrink-0 rounded-full bg-paper-3 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
+              {answer.source === 'hybrid' ? 'AI + your ledger' : answer.source === 'paypal' ? 'PayPal' : 'your ledger'}
+            </span>
           </div>
-          {answer.lines.length > 0 && (
+          {answer.facts.length > 0 && (
             <dl className="mt-3 space-y-2">
-              {answer.lines.map((l, i) => (
-                <div key={i} className="flex items-center justify-between gap-4 border-b border-chalk/60 pb-2 text-sm last:border-0">
-                  <dt className="text-ink-muted">{l.left}</dt>
-                  {l.right && <dd className={cn(mono, 'text-ink')}>{l.right}</dd>}
+              {answer.facts.map((f, i) => (
+                <div key={i} className="border-b border-chalk/60 pb-2 text-sm last:border-0">
+                  <dd className={cn(mono, 'text-ink')}>{f}</dd>
                 </div>
               ))}
             </dl>

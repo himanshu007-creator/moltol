@@ -10,15 +10,14 @@ import { startMoneyEvents } from '@/lib/moneyEvents';
 import VendorStatusToggle from '@/components/react/VendorStatusToggle';
 import MoneySplash from '@/components/react/MoneySplash';
 import { useSession, type Role } from '@/stores/session';
-import { logout as backendLogout, setRole as backendSetRole, getMe } from '@/lib/backend';
+import { logout as backendLogout, setRole as backendSetRole, getMe, getMyShop } from '@/lib/backend';
 import { ROUTES } from '@/lib/routes';
 import { useUi } from '@/stores/ui';
 import { useBazaar } from '@/stores/bazaar';
 import { useCart, useCartLineCount } from '@/stores/cart';
 import { useOrders } from '@/stores/orders';
-import { useSimple } from '@/stores/simple';
+import { useSimple, shopItemToSimpleProduct } from '@/stores/simple';
 import { useInventory } from '@/stores/inventory';
-import { useLedger } from '@/stores/ledger';
 import { useBuyer } from '@/stores/buyer';
 import { usePrefs, useI18n } from '@/stores/prefs';
 import { LOCALES } from '@/lib/i18n';
@@ -86,6 +85,22 @@ export default function Shell() {
         if (me.hagglePreset !== useBuyer.getState().personality) {
           useBuyer.setState({ personality: me.hagglePreset });
         }
+        if (!me.shop) return;
+        useSession.setState({ shopId: me.shop.id });
+        // Hydrate this device's local caches from the real shop — covers
+        // logging in on a new device, where Simple Mode/the Modern console
+        // have never seen this account's products before.
+        void getMyShop(token)
+          .then((shop) => {
+            useSimple.setState({
+              onboarded: true,
+              stallName: shop.name,
+              stallEmoji: shop.emoji,
+              products: shop.items.map(shopItemToSimpleProduct),
+            });
+          })
+          .catch(() => {});
+        void useInventory.getState().fetch(token);
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -242,8 +257,7 @@ export default function Shell() {
                 useOrders.getState().reset();
                 useSimple.getState().reset();
                 useVenue.getState().reset();
-                useInventory.getState().resetDemo();
-                useLedger.getState().reset();
+                useInventory.getState().reset();
                 useBuyer.getState().reset();
                 // Fire-and-forget: revoke the backend session, but don't make
                 // the person wait on the network to leave the app.

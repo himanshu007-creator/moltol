@@ -6,7 +6,6 @@
 import { z } from 'zod';
 import { formatMoney, parseMoneyToCents } from '@/lib/money';
 import { UNIT_IDS, UNIT_WORDS, clampQty, type UnitId } from '@/lib/units';
-import { COMP_LIB, type InventoryItem as BuyerItem, type ItemLib } from '@/lib/mock/seeds';
 
 export const StockItemSchema = z.object({
   id: z.string().min(1),
@@ -237,47 +236,6 @@ export function rowsToDrafts(rows: string[][], map: Record<CsvField, number>): C
   });
 }
 
-/* ---------------------------- snap stand-in ---------------------------- */
-
-/**
- * Canned vision suggestions. Stand-in for camera detection: the user confirms
- * or edits. A real backend would call a vision model (SerpAPI Lens is an option).
- */
-export const SNAP_SUGGESTIONS: Array<Pick<StockDraft, 'name' | 'category' | 'emoji' | 'unit' | 'listCents' | 'compKey'>> = [
-  { name: 'Tomatoes', category: 'vegetable', emoji: '🍅', unit: 'kg', listCents: 4000, compKey: 'tomato' },
-  { name: 'Onions', category: 'vegetable', emoji: '🧅', unit: 'kg', listCents: 3500, compKey: 'onion' },
-  { name: 'Coriander', category: 'vegetable', emoji: '🌿', unit: 'bunch', listCents: 2000, compKey: 'coriander' },
-];
-
-/* ---------------------------- buyer view ------------------------------ */
-
-/**
- * What a buyer sees for the demo stall: only in-stock, non-archived items.
- * `floorCents` is intentionally set to the seller's minimum for the negotiation
- * engine only. The buyer UI never renders it (see the cross-cutting rule).
- */
-export function toBuyerItems(items: StockItem[]): BuyerItem[] {
-  return items
-    .filter((i) => !i.archived && i.qty > 0)
-    .map((i) => ({
-      sku: i.id,
-      itemId: (i.compKey ?? 'tomato') as ItemLib, // fallback only for the library-keyed helpers; `market` is authoritative
-      title: { en: i.name, hi: i.name, pa: i.name },
-      emoji: i.emoji,
-      unit: `/${i.unit === 'custom' ? i.customUnit ?? 'unit' : i.unit}`,
-      listCents: i.listCents,
-      floorCents: i.minCents,
-      stock: i.qty,
-      market: marketBand(i),
-    }));
-}
-
-/** Market band for a stock item: comps library when matched, otherwise a band around the list price. */
-export function marketBand(i: StockItem): NonNullable<BuyerItem['market']> {
-  const lib = i.compKey ? COMP_LIB[i.compKey as ItemLib] : undefined;
-  if (lib) return lib;
-  return { median: i.listCents, p25: Math.round(i.listCents * 0.85), p75: Math.round(i.listCents * 1.1) };
-}
 
 /** Low stock: in stock, at or below the alert threshold. */
 export function isLow(i: StockItem): boolean {

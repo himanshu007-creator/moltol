@@ -8,10 +8,10 @@ import { useBuyer } from '@/stores/buyer';
 import { formatMoney } from '@/lib/money';
 import { requestFor, PRESETS, type PresetId } from '@/lib/personality';
 import PersonalityPicker from '@/components/buyer/PersonalityPicker';
-import { compsOf, cheapest } from '@/lib/mock/market';
+import { compsOf } from '@/lib/comps';
 import { roundQty, stepForLabel } from '@/lib/units';
 import { cn } from '@/lib/cn';
-import type { InventoryItem } from '@/lib/mock/seeds';
+import type { InventoryItem } from '@/lib/types';
 
 /**
  * The basket. Choose which items the agents haggle (all or selected), pick a
@@ -26,12 +26,12 @@ export default function CartSheet() {
   const listShop = shops.find((s) => s.id === cart.shopId);
   // Same gap as StallGrid: a real shop's nearby-fetch is in-memory only, so a
   // fresh page load that lands straight on the cart (no discovery visit yet
-  // this session) needs its own fetch — never silently fall back to an
-  // unrelated seeded shop and haggle against the wrong catalogue.
+  // this session) needs its own fetch — never silently fall back to a
+  // different shop and haggle against the wrong catalogue.
   const directShop = useDirectShopFallback(cart.shopId ?? '', Boolean(listShop));
-  const baseShop = listShop ?? directShop ?? shops[0]!;
+  const baseShop = listShop ?? directShop;
   const realProducts = useRealShopProducts(listShop); // directShop already carries its own products
-  const shop = realProducts ? { ...baseShop, products: realProducts } : baseShop;
+  const shop = baseShop && realProducts ? { ...baseShop, products: realProducts } : baseShop;
 
   // scope: which lines the agents haggle. Starts as "all"; new lines join it.
   const [picked, setPicked] = useState<string[]>(() => cart.lines.map((l) => l.sku));
@@ -49,16 +49,18 @@ export default function CartSheet() {
   const includedTotal = included.reduce((s, l) => s + Math.round(l.listCents * l.qty), 0);
   const maxPotential = useMemo(
     () =>
-      included.reduce((s2, l) => {
-        const m = compsOf(itemOf(l, shop));
-        return s2 + Math.max(0, Math.round((l.listCents - m.p25Cents) * l.qty));
-      }, 0),
+      !shop
+        ? 0
+        : included.reduce((s2, l) => {
+            const m = compsOf(itemOf(l, shop));
+            return s2 + Math.max(0, Math.round((l.listCents - m.p25Cents) * l.qty));
+          }, 0),
     [included, shop],
   );
   const toggle = (sku: string) => setPicked((p) => (p.includes(sku) ? p.filter((s) => s !== sku) : [...p, sku]));
 
   const startHaggle = () => {
-    if (!included.length) return;
+    if (!included.length || !shop) return;
     const lines = included.map((l) => ({ ...l, item: itemOf(l, shop) }));
     const request = requestFor(preset);
     bazaar.start(shop, lines, { scope, style: request.tone, budgetCents: null, request });
@@ -80,6 +82,15 @@ export default function CartSheet() {
     );
   }
 
+  if (!shop) {
+    return (
+      <div className="surface grid justify-items-center gap-4 p-10 text-center">
+        <span className="grid h-20 w-20 place-items-center rounded-3xl bg-paper-3 text-4xl" aria-hidden="true">⏳</span>
+        <p className="t-h2">Finding your stall…</p>
+      </div>
+    );
+  }
+
   return (
     <div className="grid gap-6 pb-44">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -97,8 +108,6 @@ export default function CartSheet() {
           const m = compsOf(item);
           const saved = Math.max(0, l.listCents - m.medianCents);
           const isIn = picked.includes(l.sku);
-          // cross-shop nudge only for library-priced items; vendor items have no comps elsewhere
-          const best = item.market ? undefined : cheapest(item.itemId);
           const step = stepForLabel(l.unit);
           return (
             <li key={l.sku} className={cn('surface flex items-center gap-3 p-3 transition sm:gap-4 sm:p-4', !isIn && 'opacity-60')}>
@@ -118,11 +127,6 @@ export default function CartSheet() {
                   {roundQty(l.qty)} × <span className="t-num">{formatMoney(l.listCents)}</span>
                   {saved > 0 && <span className="font-semibold text-teal"> · sticker is {formatMoney(saved)} over market</span>}
                 </p>
-                {best && best.shopId !== cart.shopId && best.priceCents < l.listCents && (
-                  <p className="mt-1 text-[11px] font-semibold text-indigo">
-                    {best.emoji} {best.name} has it for {formatMoney(best.priceCents)}
-                  </p>
-                )}
               </div>
               <div className="flex items-center gap-1 rounded-2xl bg-paper-3 p-1" role="group" aria-label={`Quantity of ${l.title.en}`}>
                 <StepBtn label="−" onClick={() => cart.setQty(l.sku, roundQty(l.qty - step))} />

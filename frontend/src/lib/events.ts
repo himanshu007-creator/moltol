@@ -2,11 +2,9 @@ import { z } from 'zod';
 
 /**
  * The negotiation wire contract — mirrors the backend's exactly
- * (`backend/packages/contracts/src/events.ts`), since that's the only one of
- * the two schemas ever exercised against a real server. Money is integer
- * cents. This is the single source of truth shared by the local simulation
- * (`lib/mock/seeds.ts`'s `buildCartScript`, which emits these same shapes),
- * the reducer, the UI, and the real SSE stream (`lib/basketStream.ts`).
+ * (`backend/packages/contracts/src/events.ts`). Money is integer cents. This
+ * is the single source of truth shared by the reducer, the UI, and the real
+ * SSE stream (`lib/basketStream.ts`).
  */
 
 export const SideSchema = z.enum(['buyer', 'shop']);

@@ -84,108 +84,136 @@ frontend still runs on its mocks** — wiring `stores/bazaar.ts`, `PayFlow.tsx`,
 "Backend pass, 2026-10-16" below for the exact contract, what is deliberately
 not done, and why.
 
-## Current pending work (2026-10-18) — what's actually left, FE or BE
+## Current pending work (2026-10-24) — what's actually left, FE or BE
 
 Everything below this line in the rest of the doc is the historical log (how
 we got here, what was fixed, what was decided). This section is the answer
 to "what's still pending, and on which side" as of today, pulled from that
-log so nobody has to re-read 400 lines to find it. An item only appears here
+log so nobody has to re-read 600 lines to find it. An item only appears here
 if there is still something to build or decide — resolved items are left out
 (see the checklist sections further down for the full done/not-done history
 with dates).
 
+**Big change this session: the frontend's entire local/seeded simulation is
+gone.** Every seeded shop, the fake haggle engine, the zero-login demo
+account, hardcoded Jalandhar coordinates, local ledger/insights math, and
+the on-device vegetable-scanner catalogue have all been deleted outright
+(not kept as a fallback). The app now runs on nothing but the real backend —
+a brand-new visitor can only reach `/login`; every shop, item, haggle,
+location, ledger number, and order is real. This is what makes the backend
+gaps below concrete and newly load-bearing (they used to be hidden behind a
+local fallback; now a seller hits them directly).
+
 ### Backend — pending
 
-Done this session (2026-10-18, PR **#5** `feat/backend-frontend-inr-fx-snap-feed`) — these were all
-pending above and are now built:
-`GET /v1/ledger` + `/v1/ledger/summary` + `POST /v1/ledger/ask` (AG Grid "Merchant Ledger"/"Ledger Agent"
-data side, `LedgerAsk` LLM fallback included), `GET /v1/insights/buyer`, stock reservations between
-checkout and capture (`0006_stock_reservations` + worker sweeper), payment retry
-(`POST /v1/baskets/:id/retry`), `POST /v1/inventory/snap` (inline data-URL, vision model or built-in
-catalogue — no image hosting needed), SerpAPI comps provider behind `createMarketProvider`
-(Channel3 → SerpAPI → seeded), **money defaults switched to INR** (`0008`), **INR→USD checkout**
-(`0009_payment_fx`, ADR 0008 — the "demo in USD vs convert at checkout" decision: convert),
-`PATCH /v1/shops/me/location` + `locationUpdatedAt` on nearby (`0007`), and the seller live deal feed
-(ticket + SSE, ADR 0007). Terraform vars plumbed for `SERPAPI_API_KEY`/`PAYPAL_SETTLEMENT_CURRENCY`/
-`FX_USD_PER_INR`.
-
-Still pending:
-
-- [ ] **SerpAPI/Channel3/LLM/SMTP keys are unset on the live instance** — ops/config, not missing code.
-  Comps fall back to seed, snap to the catalogue, OTP to console-logging. Set in `terraform.tfvars`
-  and re-apply.
-- [ ] **`ALLOW_MOCK_PAYPAL`/sandbox buyer approval** still needs a manual click for a real PayPal run.
-- [ ] **SerpAPI currency caveat:** SerpAPI results come back in the Google-locale currency (often USD),
-  which can mismatch INR shops once the key is live — normalise or filter by `currency` when enabling.
-- [ ] **"Modern" inventory model** — **partially done (local, uncommitted):** schema + contracts landed
-  (migration `0010_modern_inventory`: `shop_items` gains `cost_cents`, `category`, `low_stock_at`,
-  `archived`, `custom_unit`, `pack_size`; new `stock_adjustments` audit table; `CreateShopItemRequest`/
-  `ShopItem` extended, `costCents` stripped from `PublicShopItemSchema`, `floorCents` relaxed to
-  nonnegative). **Still pending:** repo/views wiring, the adjust/bulk/archive endpoints, and the FE's
-  "save to backend" step (FE↔BE field mapping decided: map on the FE — `listCents↔sellCents`,
-  `minCents↔floorCents` — no BE rename). Soft-delete decided: `DELETE …/items/:id` sets `archived`.
-- [x] ~~**No-deal semantics for the standalone single-query demo**~~ — **resolved (2026-10-21, local,
-  uncommitted):** Option A — the standalone demo always converges. `engine/src/steps.ts` caps the
-  derived shop's sealed floor at `STANDALONE_FLOOR_HEADROOM` (0.9) × the buyer's ceiling, so a ZOPA
-  exists by construction (same shape as a basket line's reserve). The `no_zopa`/`no_deal` vocabulary
-  stays in the contract (now unreachable in the agent-vs-agent path; the human path never walked away
-  anyway) — pruning it is a separate, ordered BE-then-FE cleanup. Engine test rewritten accordingly.
-  Caveat (documented in `backend/README.md`): a budget below the market floor closes at the buyer's
-  ceiling and the fairness number reflects the clamp.
+- [ ] **`archived` has no write path.** `CreateShopItemRequestSchema`/
+  `UpdateShopItemRequestSchema` in `backend/packages/contracts/src/vendor.ts`
+  never added `archived` — only the output `ShopItemSchema` has it. A vendor
+  cannot archive/restore an item via the API. The frontend's Modern Inventory
+  console (now real CRUD, see "Frontend — pending" below) has its
+  archive/restore button disabled with an inline note pointing at this gap.
+- [ ] **No bulk item endpoint.** CSV import and bulk price changes in the
+  frontend's Modern console are now sequential individual `PATCH`/`POST
+  /v1/shops/me/items` calls — correct, but slow for a large import. A real
+  bulk endpoint would help but isn't required for correctness.
+- [ ] **No photo/image storage on `shop_items` at all** — not even a
+  seller-only field. The Modern Inventory item form's photo upload is a
+  local-only preview that is never persisted; found this session when the
+  inventory store was rewired to real CRUD. Same underlying gap as
+  snap-to-add needing image hosting (see "Image / vision" below) — worth
+  deciding together.
+- [ ] **`locationUpdatedAt` (how fresh a "live" vendor pin is) is only
+  returned by `GET /v1/shops/nearby`'s `nearbyView`, not by the single-shop
+  `shopView`** (`GET /v1/shops/:shopId`, `GET /v1/shops/me`) — found while
+  wiring the frontend's live-location badge. A buyer who lands straight on a
+  stall URL (not through the nearby list) has no way to know if that shop's
+  pin is live. Minor; the nearby list is the primary discovery path.
+- [ ] **No "search products by name" endpoint.** The frontend's vendor
+  "search by name" flow (`AddItem.tsx`) always returns empty results now —
+  it used to fall back to a hardcoded local catalogue, which was removed
+  this session along with everything else local. The real, wired part of
+  that flow (`GET /v1/market/comps`, a price-range lookup for a typed
+  query) still works; only the product-name/emoji suggestion list has
+  nothing backing it.
+- [ ] **SerpAPI/Channel3/LLM/SMTP keys are unset on the live instance** —
+  ops/config, not missing code. Comps fall back to seed, snap to the
+  catalogue, OTP to console-logging. Set in `terraform.tfvars` and re-apply.
+- [ ] **`ALLOW_MOCK_PAYPAL`/sandbox buyer approval** still needs a manual
+  click for a real PayPal run.
+- [ ] **SerpAPI currency caveat:** SerpAPI results come back in the
+  Google-locale currency (often USD), which can mismatch INR shops once the
+  key is live — normalise or filter by `currency` when enabling.
 
 ### Frontend — pending
 
-Done this session (2026-10-21) — wired and verified live against a rebuilt `docker compose` backend,
-for both a vendor and a buyer journey, not just read from source:
+Done this session (2026-10-24) — the local-simulation-removal pass, verified
+with `tsc`/`pnpm build` clean throughout:
 
-- [x] **`GET /v1/ledger` + `/v1/ledger/summary`** — `LedgerDashboard.tsx` now fetches real KPIs
-  (`useRealLedgerSummary`) and shows a "Live from your shop" strip above the existing local-estimate
-  dashboard (which keeps working unchanged for a seller with no real shop/sale yet). The full AG Grid
-  Studio grid/widgets UI is still its own, separate build — see the sponsor-integration writeup below.
-- [x] **`POST /v1/ledger/ask`** — `LedgerAsk.tsx`'s "Ask your ledger" now calls the real agent when a
-  token exists (falls back to the old local keyword-matcher on a 404/no-shop/unreachable backend), and
-  shows a source badge (`hybrid`/`heuristic`/`paypal`) so the UI is honest about where the answer came from.
-- [x] **`GET /v1/insights/buyer`** — `Insights.tsx` shows a real "from your real orders" KPI strip above
-  the existing demo-history cards once a buyer has a real paid order.
-- [x] **The seller live deal feed** (`POST /v1/shops/me/deals/ticket` + `GET /v1/shops/me/deals/stream`,
-  ADR 0007) — `SimpleDeals.tsx` opens the ticketed SSE stream and renders `deal.incoming`/`deal.closed`
-  frames live in a new "Live on your shop" section, with its own ticket-refresh-on-drop reconnect (a
-  ticket is only good for 120s, so native `EventSource` retry against the same stale URL wouldn't work).
-  Verified live: a buyer's basket create and lane accept both appeared on the seller's open tab in real time.
-- [x] **`POST /v1/inventory/snap`** — `AddItem.tsx`'s "Snap" mode now tries the real, authenticated
-  endpoint first for a logged-in seller, falling back to the existing `lib/vision.ts` chain (which targets
-  a different, unauthenticated dev-proxy convention) on no token or no suggestions. Verified against the
-  real endpoint directly (`catalogue` source, hint-matched).
-- [x] **INR→USD `deal`/`fxRate` display** (ADR 0008) — `PayFlow.tsx`'s "paying" stage shows "Charged as
-  $X.XX USD via PayPal (PayPal doesn't settle INR directly)" when `fxRate !== 1`. Verified the checkout
-  response shape directly (`₹30.00 → $0.36 @ 0.012`); the UI line itself renders too briefly to screenshot
-  with the mock gateway (capture is near-instant with `approveUrl: null`), confirmed by code path instead.
-- [x] **`POST /v1/baskets/:id/retry`** — wired into `PayFlow.tsx`'s `pay()`: a failed/expired checkout now
-  flips the button to "Retry payment" and calls `/retry` (a fresh PayPal order) instead of `/checkout`
-  again, which is idempotent and would otherwise just hand back the same stale, already-failed order.
-- [x] **Real bug found and fixed along the way:** `payError` was being set on a checkout/capture failure
-  but only ever rendered inside the "paying" stage JSX — since the failure path calls `setStage('ready')`,
-  the error message was silently discarded and the buyer just bounced back to the bill screen with no
-  explanation. Now rendered on the "ready" stage too.
+- [x] **Local haggle simulation deleted** (`stores/bazaar.ts`) — every
+  basket haggle is a real `POST /v1/baskets` + live SSE stream; a shop/item
+  mix that isn't real shows a clear error instead of a fake haggle.
+- [x] **Zero-login demo account deleted** (`DemoProvisioner.tsx`,
+  `provisionDemo()` on both `stores/session.ts` and `stores/simple.ts`) — a
+  fresh visitor now always lands on `/login`.
+- [x] **Seeded shops/discovery deleted** — `useLiveShops()` returns only
+  real backend shops; the hardcoded Jalandhar `BAZAAR_CENTER` fallback is
+  gone, so a buyer's position is real GPS or nothing (an explicit "share
+  your location" empty state, not a silent wrong default).
+- [x] **New feature: live vendor location.** Wired the backend's
+  already-built-but-unused `PATCH /v1/shops/me/location` (continuous push,
+  distinct from the one-shot `PATCH /v1/shops/me`) as an opt-in toggle in
+  Simple Mode ("Share live location while open") that pushes the seller's
+  real position every few seconds via `watchPosition` while the stall is
+  open; the buyer's discovery map and stall header show a "📡 live" badge
+  off `locationUpdatedAt` when fresh (<2 min).
+- [x] **Modern Inventory is now real CRUD** — `stores/inventory.ts` holds
+  real `ShopItem[]` from `GET /v1/shops/me`; add/update/adjust/bulk/import
+  are real `POST`/`PATCH` calls. `archived` and bulk import are disabled/
+  sequential respectively, per the backend gaps above.
+- [x] **Ledger, insights, and "ask your ledger" are now real-data-only** —
+  no local fallback left. `LedgerDashboard.tsx` renders `GET /v1/ledger`'s
+  KPIs, rankings (`widgets.marginByItem`/`revenueByItem`), and deal funnel
+  directly; `Insights.tsx` renders `GET /v1/insights/buyer`'s real cards;
+  `LedgerAsk.tsx` always calls the real `POST /v1/ledger/ask` agent.
+- [x] **Snap-to-add unified onto the real backend, both surfaces.**
+  `AddItem.tsx`'s Snap mode and Simple Mode's `VegetableScanner.tsx` (which
+  used to run Chrome's experimental on-device `window.LanguageModel` against
+  a hardcoded 20-item vegetable catalogue) both now capture a photo and call
+  the real, authenticated `POST /v1/inventory/snap` — no local/offline
+  fallback. `ProductCreationForm.tsx` now requires the real `addShopItem()`
+  write to succeed before a product is added, instead of adding it locally
+  regardless.
+- [x] **PayFlow is now real-only** — the local mock `setTimeout`
+  order-fabrication path is deleted; every payment is a real checkout/
+  capture against the real basket.
+- [x] **Simple Mode hydrates from the real shop** on login (`Shell.tsx`'s
+  `GET /v1/me` sync now also calls `GET /v1/shops/me` and populates
+  `stores/simple.ts`'s stall name/products), instead of a hardcoded starter
+  product set.
 
 Still pending:
 
-- [ ] **"Modern" inventory console** (`AddItem.tsx`/`InventoryManager.tsx`'s own CRUD — cost/min price,
-  bulk edit, CSV import, archive) stays unwired to the backend, matching the backend-side item in "Backend
-  — pending" above — not worth doing one side without the other. (The Snap suggestions above populate
-  this form's fields either way; only the final "save to backend" step is still local-only.)
-- [ ] **AG Grid Studio's actual grid/widget UI** (margin-by-item bar, fairness histogram, deal funnel —
-  all already computed and returned by `GET /v1/ledger`, just not rendered yet) — its own, separate,
-  larger build. See "Hackathon sponsor integrations" below for the full scoped-out spec.
-- [ ] Voice narration and gamification (XP/streaks/badges) are frontend-only by design and were never
-  meant to need backend work — listed here only so they aren't mistaken for an oversight; no action needed.
+- [ ] **AG Grid Studio's actual grid/widget UI** (margin-by-item bar,
+  fairness histogram, deal funnel — all already computed and returned by
+  `GET /v1/ledger`, rendered now as plain bars/numbers, not an AG Grid
+  embed) — its own, separate, larger build. See "Hackathon sponsor
+  integrations" below for the full scoped-out spec.
+- [ ] **"Repeat customers" and a real "peak hours"/day-trend chart** were
+  dropped from the old local ledger dashboard rather than rebuilt — the
+  backend's `LedgerRow` carries no buyer identity at all (no real data
+  possible for "repeat customers"), and a real trend-by-period chart would
+  need new bucketing logic not yet built on the frontend. Not blocking;
+  flagged here so it isn't mistaken for an oversight.
+- [ ] Voice narration and gamification (XP/streaks/badges) are
+  frontend-only by design and were never meant to need backend work —
+  listed here only so they aren't mistaken for an oversight; no action
+  needed.
 
-Everything else that used to be a frontend gap — basket haggle, checkout/
-payment, orders/receipts, discovery, stall status, session/role/logout,
-ledger/insights/ask, the seller live deal feed, snap-to-add, and the
-INR→USD checkout display — is wired and verified end to end (see "What's
-wired now" and the checklist sections below for exactly what and how it
-was tested).
+Everything else — basket haggle, checkout/payment, orders/receipts,
+discovery, stall status, live location, session/role/logout, ledger/
+insights/ask, the seller live deal feed, snap-to-add, Modern Inventory CRUD,
+and the INR→USD checkout display — is wired and verified end to end, with
+no local fallback left anywhere in the app.
 
 ## Backend pass, 2026-10-16
 

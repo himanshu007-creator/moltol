@@ -88,16 +88,17 @@ export default function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
 
     const dest = chosenRole === 'seller' || (!chosenRole && hasShop) ? landingRoute(true) : landingRoute(hasShop);
     if (dest.role === 'seller' && !hasShop) {
-      // Fresh seller signup: register the shop server-side, mirroring the
-      // local IndexedDB stall that's always been created here.
+      // Fresh seller signup: register the real shop. The local stall only
+      // reflects it once the backend write actually succeeds — no local-only
+      // shop that pretends to be real.
       try {
-        await createShop(token, simple.stallName || 'My stall', simple.stallEmoji || '🏪');
+        const shop = await createShop(token, simple.stallName || 'My stall', simple.stallEmoji || '🏪');
+        session.setShopId(shop.id);
+        simple.setStall(simple.stallName || 'My stall', simple.stallEmoji || '🏪');
+        simple.finishOnboarding();
       } catch {
-        // Local-first: don't block the seller from reaching their dashboard
-        // just because the backend write failed.
+        session.setPending("Couldn't set up your stall — try again from your account menu.");
       }
-      simple.setStall(simple.stallName || 'My stall', simple.stallEmoji || '🏪');
-      simple.finishOnboarding();
     }
     session.setRole(dest.role, dest.route);
     // Soft nav (not location.href): a hard reload can outrun the async IndexedDB

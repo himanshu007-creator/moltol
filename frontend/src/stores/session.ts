@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { idbStorage } from '@/lib/idb';
 import { migratePath, type SellerMode } from '@/lib/routes';
-import { DEMO_USER } from '@/lib/mock/seeds';
 
 /**
  * The full session lives in IndexedDB (see idbStorage) — that's the source of
@@ -29,8 +28,7 @@ export interface SessionState {
   name: string;
   phone: string;
   avatarEmoji: string;
-  /** Real backend account, once signed up/logged in via AuthForm. Empty/null
-   *  for the local-only demo account (provisionDemo) and any pre-backend state. */
+  /** Real backend account, set once signed up/logged in via AuthForm. */
   email: string;
   token: string | null;
   activeRole: Role;
@@ -42,17 +40,13 @@ export interface SessionState {
   setSellerMode: (mode: SellerMode) => void;
   /** non-blocking "switch to handle it" banner */
   pendingNote: string | null;
-  /** set once, by logout, and never cleared by it: the one thing a full wipe
-   *  must survive, so provisionDemo() can tell "never been used" apart from
-   *  "the tester explicitly signed out" and never re-auto-logs-in after that. */
-  everLoggedOut: boolean;
+  /** This account's real backend shop id, once one exists — set right after
+   *  `createShop()` succeeds, and synced from `GET /v1/me` on every load. */
+  shopId: string | null;
+  setShopId: (shopId: string | null) => void;
 
-  login: (name: string, phone: string, avatarEmoji?: string) => void;
-  /** Real backend login/signup (email + JWT), distinct from the phone-only demo `login`. */
+  /** Real backend login/signup (email + JWT). */
   loginWithBackend: (email: string, token: string, avatarEmoji?: string) => void;
-  /** Auto-log in as the demo dual-role account, once, on a true first visit only
-   *  (never after an explicit logout — see Shell.tsx). Local, no-backend testing. */
-  provisionDemo: () => void;
   /** Full reset: every field here goes back to blank (not just loggedIn), and
    *  every other persisted store resets too — see Shell.tsx's logout handler. */
   logout: () => void;
@@ -79,27 +73,11 @@ export const useSession = create<SessionState>()(
       sellerMode: null,
       setSellerMode: (sellerMode) => set({ sellerMode }),
       pendingNote: null,
-      everLoggedOut: false,
-
-      login: (name, phone, avatarEmoji = '🙍🏽‍♀️') =>
-        set({ loggedIn: true, name, phone, avatarEmoji }),
+      shopId: null,
+      setShopId: (shopId) => set({ shopId }),
 
       loginWithBackend: (email, token, avatarEmoji = '🙍🏽‍♀️') =>
         set({ loggedIn: true, name: email.split('@')[0] ?? email, email, token, avatarEmoji }),
-
-      provisionDemo: () => {
-        if (get().everLoggedOut || get().loggedIn) return;
-        set({
-          loggedIn: true,
-          name: DEMO_USER.name,
-          phone: DEMO_USER.phone,
-          avatarEmoji: DEMO_USER.avatarEmoji,
-          activeRole: 'buyer',
-          buyerProfileDone: true,
-          sellerProfileDone: true,
-          sellerMode: 'simple',
-        });
-      },
 
       logout: () =>
         set({
@@ -115,7 +93,7 @@ export const useSession = create<SessionState>()(
           lastRoute: { buyer: '/app/buy', seller: '/app/seller/simple' },
           sellerMode: null,
           pendingNote: null,
-          everLoggedOut: true,
+          shopId: null,
         }),
 
       switchRole: () => {
@@ -134,21 +112,19 @@ export const useSession = create<SessionState>()(
     }),
     {
       name: 'moltol-session',
-      version: 4,
+      version: 5,
       storage: createJSONStorage(() => idbStorage),
       // v1 stored flat paths like /buy and /simple; map them to the /app routes.
-      // v3 adds everLoggedOut — anyone migrating from an older version has never
-      // used the new logout-wipe/auto-provision pair, so it defaults to false.
       // v4 adds email/token for real backend accounts — empty/null for anyone
-      // migrating from before auth was real (the demo account, mainly).
+      // migrating from before auth was real. v5 adds shopId.
       migrate: (state) => {
         const st = state as Partial<SessionState> & { lastRoute?: { buyer?: string; seller?: string } };
         return {
           ...st,
           sellerMode: st.sellerMode ?? null,
-          everLoggedOut: st.everLoggedOut ?? false,
           email: st.email ?? '',
           token: st.token ?? null,
+          shopId: st.shopId ?? null,
           lastRoute: {
             buyer: migratePath(st.lastRoute?.buyer ?? '/buy'),
             seller: migratePath(st.lastRoute?.seller ?? '/simple'),

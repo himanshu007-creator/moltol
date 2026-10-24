@@ -1,9 +1,8 @@
 import type { Market, NegotiationEvent, Side, Tactic, TurnKind } from './events';
 
 /**
- * Pure reducer. `(state, event) => state`. The same function powers: the
- * local simulation's tick loop, the real SSE stream, and tests. No side
- * effects, no timers, no I/O.
+ * Pure reducer. `(state, event) => state`. Powers the real SSE stream and
+ * tests. No side effects, no timers, no I/O.
  */
 
 export type Phase =
