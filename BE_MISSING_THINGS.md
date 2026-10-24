@@ -647,6 +647,7 @@ sponsor list per `plan.md`.
 - [ ] Discovery / map (Leaflet + browser `navigator.geolocation`, `frontend/src/components/discovery/LeafletMap.tsx`, `ShopDiscovery.tsx`) runs entirely client-side against seeded shop coordinates and the browser's real GPS. The backend's eventual `GET /v1/shops/nearby?lat&lng&radius` (handoff §4) would replace the seeded coordinate list, but the map rendering and geolocation itself stay frontend-only.
 - [ ] Gamification UI — XP/badges/streaks/predictions, per `frontend/docs/BE_HANDOFF.md` §3, is explicitly called out there as *"not modelled yet"* and *"cosmetic and must never change prices."* Still true; no backend schema exists for it and none should block a demo.
 
+<<<<<<< HEAD
 ## Inline responses to pending backend items (2026-10-25)
 
 ### Backend — pending (status update)
@@ -657,6 +658,21 @@ sponsor list per `plan.md`.
 - [x] **Standalone negotiation convergence** — **DONE (Option A):** Engine clamps floor to 0.9× buyer ceiling.
 - [ ] **Bulk endpoint** `POST /v1/shops/me/items/bulk` — **Not implemented** (perf-only).
 - [ ] **Photo/image storage for `shop_items`** — **Not needed.** `POST /v1/inventory/snap` uses inline data URLs; no storage required. Demo works without.
+<<<<<<< HEAD
 - [x] **Ops keys** — SerpAPI/LLM unset on live instance (fallbacks). SMTP/Brevo configured for OTP emails.
 =======
 **Update, 2026-10-25:** Inventory model extended (migration `0010_modern_inventory`), soft-delete/archive support, stock adjustments with audit trail, `locationUpdatedAt` on shops, `POST /v1/shops/me/items/:id/adjust` endpoint added. Channel3 API fixed to use `api.trychannel3.com` with correct auth. `POST /v1/search/products` added for FE compatibility. Standalone negotiation now always converges (Option A) — engine clamps floor for standalone demo. Demo works without photo storage (snap uses inline data URLs).
+=======
+- [ ] **Ops keys** — SerpAPI/LLM/SMTP unset on live instance (fallbacks in place).
+=======
+### PayPal webhook + return flow (handoff to frontend)
+- **Webhook configured**: `PAYPAL_WEBHOOK_ID=8FA144871W048541L` set on live API; webhooks from PayPal should verify and auto-capture via `approveAndCapture()`. Sandbox events may still require correct event subscription.
+- **Return URL points to API**: `PUBLIC_BASE_URL` points to `https://api.52.64.250.111.nip.io`, so PayPal redirects to API (`/return?token=...&PayerID=...`) which has no handler (404). Either change `PUBLIC_BASE_URL` to frontend URL or add API redirects.
+- **UI doesn't auto-refresh on webhook capture**: `PayFlow` waits for user to click "I've approved it on PayPal" and calls `captureBasket()`. Webhook captures server-side but UI won't transition automatically. `captureBasket()` is idempotent if already captured (returns proofs), so clicking the button again works as fallback.
+- **Needed frontend changes**:
+  - Add `/app/return` and/or `/app/cancel` pages to handle PayPal redirect, read `token`/`PayerID`, auto-call `captureBasket()` and redirect to receipt
+  - Or poll `getBasket()`/`getOrder()` while in "paying" state to detect webhook-captured payments
+  - Or extend basket SSE to emit payment status events so UI updates in real-time
+  - Consider changing `PUBLIC_BASE_URL` to frontend origin for better UX
+>>>>>>> 28bb195 (docs: add PayPal webhook/return flow handoff for frontend)
+>>>>>>> b76861a (docs: add PayPal webhook/return flow handoff for frontend)
