@@ -53,6 +53,7 @@ export function shopView(row: ShopRow): Shop {
     currency: row.currency,
     location: row.lat !== null && row.lng !== null ? { lat: row.lat, lng: row.lng } : null,
     status: shopStatus(row),
+    locationUpdatedAt: row.locationUpdatedAt ? row.locationUpdatedAt.getTime() : null,
   };
 }
 
@@ -73,8 +74,14 @@ export function shopItemView(row: ShopItemRow): ShopItem {
     emoji: row.emoji,
     sellCents: row.sellCents,
     floorCents: row.floorCents,
+    costCents: row.costCents ?? null,
+    category: row.category ?? null,
     quantity: row.quantity,
+    lowStockAt: row.lowStockAt !== null && row.lowStockAt !== undefined ? Number(row.lowStockAt) : null,
+    archived: row.archived ?? false,
     unit: row.unit,
+    customUnit: row.customUnit ?? null,
+    packSize: row.packSize !== null && row.packSize !== undefined ? Number(row.packSize) : null,
     hindiName: row.hindiName,
   };
 }

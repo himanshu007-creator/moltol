@@ -157,8 +157,43 @@ export async function registerShopRoutes(
       });
       if (invalid) return invalid;
 
+      if (parsed.data.archived === true) {
+        await store.deleteShopItem(req.params.itemId);
+        const updated = await store.getShopItem(req.params.itemId);
+        if (!updated) return sendProblem(reply, 404, "not_found");
+        return reply.send(shopItemView(updated));
+      }
+
       const updated = await store.updateShopItem(req.params.itemId, parsed.data);
       return reply.send(shopItemView(updated!));
+    },
+  );
+
+  app.post<{ Params: { itemId: string }; Body: { delta: number; reason?: string; opId?: string } }>(
+    "/v1/shops/me/items/:itemId/adjust",
+    auth,
+    async (req, reply) => {
+      const shop = await store.getShopByUserId(req.user.sub);
+      if (!shop) return sendProblem(reply, 404, "no_shop");
+      if (!isUuid(req.params.itemId)) return sendProblem(reply, 404, "not_found");
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      if (typeof body.delta !== "number" || !Number.isFinite(body.delta)) {
+        return invalidBody(reply, {
+          issues: [{ path: ["delta"], message: "number required" }],
+        } as any);
+      }
+      const existing = await store.getShopItem(req.params.itemId);
+      if (!existing || existing.shopId !== shop.id) return sendProblem(reply, 404, "not_found");
+      const result = await store.adjustShopItemStock(
+        shop.id,
+        req.params.itemId,
+        body.delta,
+        typeof body.reason === "string" ? body.reason : undefined,
+        typeof body.opId === "string" ? body.opId : undefined,
+      );
+      if (result === null) return sendProblem(reply, 404, "not_found");
+      if (result === "conflict") return sendProblem(reply, 409, "conflict", "opId already used");
+      return reply.send(shopItemView(result));
     },
   );
 
