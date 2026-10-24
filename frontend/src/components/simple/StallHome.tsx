@@ -1,10 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSimple } from '@/stores/simple';
 import { useSession } from '@/stores/session';
-import { setShopStatus, updateShopLocation } from '@/lib/backend';
+import { setShopStatus, updateShopLocation, updateShopLiveLocation } from '@/lib/backend';
 import { s, nativeRupaye } from '@/lib/simple/strings';
-import { useVenue, DEMO_SLOT_ID } from '@/stores/venue';
+import { useVenue } from '@/stores/venue';
 import { cn } from '@/lib/cn';
+
+/** How often a watched position is actually pushed to the backend — watchPosition
+ *  itself can fire far more often than that; this throttles the network calls. */
+const LIVE_PUSH_MS = 5000;
 
 /**
  * Simple Mode home for a shopkeeper: the stall, one big open/closed switch, and
@@ -12,24 +16,25 @@ import { cn } from '@/lib/cn';
  */
 export default function StallHome() {
   const { stallName, stallEmoji, haggle, todayEarningsCents, language } = useSimple();
-  const open = useVenue((s) => s.stalls[DEMO_SLOT_ID]?.open !== false);
-  const toggle = useVenue((s) => s.toggle);
   const token = useSession((st) => st.token);
+  const shopId = useSession((st) => st.shopId);
+  const open = useVenue((s) => (shopId ? s.stalls[shopId]?.open !== false : true));
+  const toggle = useVenue((s) => s.toggle);
   const dict = s(language);
   const [locating, setLocating] = useState<'idle' | 'working' | 'done' | 'error'>('idle');
+  const [sharingLive, setSharingLive] = useState(false);
+  const watchIdRef = useRef<number | null>(null);
+  const lastPushRef = useRef(0);
 
   const toggleStall = () => {
-    toggle(DEMO_SLOT_ID);
-    // Additive: a seller with a real backend shop also flips it for real, so
-    // buyers' `/v1/shops/nearby` and the live status stream agree with what
-    // the seller sees here.
+    if (shopId) toggle(shopId);
+    // The real write is the one that matters — buyers' `/v1/shops/nearby` and
+    // the live status stream read from here, not the local `stalls` map.
     if (token) void setShopStatus(token, { open: !open }).catch(() => {});
   };
 
-  // A one-time pin, not live tracking (see BE_MISSING_THINGS.md's "Live vendor
-  // location" — continuous movement is a separate, not-yet-built feature and
-  // a real privacy decision). Without this, a real shop never has a location
-  // and so never appears on a buyer's `/v1/shops/nearby`.
+  // A one-time pin. Without this, a real shop never has a location and so
+  // never appears on a buyer's `/v1/shops/nearby`.
   const setMyLocation = () => {
     if (!token || !('geolocation' in navigator)) return;
     setLocating('working');
@@ -43,6 +48,36 @@ export default function StallHome() {
       { enableHighAccuracy: true, timeout: 8000 },
     );
   };
+
+  // Live location: the stall's pin moves with it while sharing is on and the
+  // stall is open (a mobile cart, say). Explicit opt-in — this is the one
+  // piece of continuous background location in the app, a real privacy
+  // decision, not just an engineering one. Stops itself the moment the
+  // seller closes the stall or flips the toggle off.
+  useEffect(() => {
+    if (!sharingLive || !open || !token || !('geolocation' in navigator)) {
+      if (watchIdRef.current != null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      return;
+    }
+    const id = navigator.geolocation.watchPosition(
+      (pos) => {
+        const now = Date.now();
+        if (now - lastPushRef.current < LIVE_PUSH_MS) return;
+        lastPushRef.current = now;
+        void updateShopLiveLocation(token, { lat: pos.coords.latitude, lng: pos.coords.longitude }).catch(() => {});
+      },
+      () => setSharingLive(false),
+      { enableHighAccuracy: true, maximumAge: 10_000 },
+    );
+    watchIdRef.current = id;
+    return () => {
+      navigator.geolocation.clearWatch(id);
+      watchIdRef.current = null;
+    };
+  }, [sharingLive, open, token]);
 
   const tiles = [
     { icon: '📷', label: dict.u.scanTitle, sub: dict.u.scanHint, to: '/app/seller/simple/scan', tone: 'bg-indigo/15' },
@@ -86,21 +121,42 @@ export default function StallHome() {
       </button>
 
       {token && (
-        <button
-          type="button"
-          onClick={setMyLocation}
-          disabled={locating === 'working'}
-          className="surface flex min-h-11 items-center justify-center gap-2 px-4 text-sm font-semibold text-ink-muted transition active:scale-[0.99] disabled:opacity-60"
-        >
-          <span aria-hidden="true">📍</span>
-          {locating === 'done'
-            ? 'Location set — buyers nearby can find you'
-            : locating === 'working'
-              ? 'Finding you…'
-              : locating === 'error'
-                ? "Couldn't get your location — try again"
-                : 'Set my location on the map'}
-        </button>
+        <div className="grid gap-2">
+          <button
+            type="button"
+            onClick={setMyLocation}
+            disabled={locating === 'working'}
+            className="surface flex min-h-11 items-center justify-center gap-2 px-4 text-sm font-semibold text-ink-muted transition active:scale-[0.99] disabled:opacity-60"
+          >
+            <span aria-hidden="true">📍</span>
+            {locating === 'done'
+              ? 'Location set — buyers nearby can find you'
+              : locating === 'working'
+                ? 'Finding you…'
+                : locating === 'error'
+                  ? "Couldn't get your location — try again"
+                  : 'Set my location on the map'}
+          </button>
+
+          <button
+            type="button"
+            role="switch"
+            aria-checked={sharingLive}
+            onClick={() => setSharingLive((v) => !v)}
+            disabled={!open}
+            className={cn(
+              'surface flex min-h-11 items-center justify-center gap-2 px-4 text-sm font-semibold transition active:scale-[0.99] disabled:opacity-60',
+              sharingLive ? 'border-teal/50 bg-teal/10 text-teal' : 'text-ink-muted',
+            )}
+          >
+            <span aria-hidden="true">{sharingLive ? '📡' : '📍'}</span>
+            {!open
+              ? 'Open the stall to share live location'
+              : sharingLive
+                ? 'Sharing live location — on for buyers nearby'
+                : 'Share live location while open'}
+          </button>
+        </div>
       )}
 
       {haggle.step === 'offer' && (

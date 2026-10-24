@@ -1,107 +1,77 @@
-import { useEffect, useMemo, useState } from 'react';
-import { BUYER_HISTORY } from '@/lib/mock/seeds';
-import { samples } from '@/lib/mock/market';
-import { useOrders } from '@/stores/orders';
+import { useEffect, useState } from 'react';
 import { useSession } from '@/stores/session';
 import { getBuyerInsights, type BuyerInsights } from '@/lib/backend';
-import { formatMoney, formatMoneyWhole } from '@/lib/money';
-import PeriodChart from '@/components/vendor/PeriodChart';
+import { formatMoneyWhole } from '@/lib/money';
 import HaggleStyleCard from '@/components/buyer/HaggleStyleCard';
 
-/** Monthly budget goal, paise. Mock: ₹15,000. */
-export const MONTHLY_GOAL_CENTS = 1_500_000;
+const CARD_ICON: Record<BuyerInsights['cards'][number]['kind'], string> = {
+  savings: '💸',
+  streak: '🔥',
+  budget: '🎯',
+  fairness: '⚖️',
+  shops: '🏪',
+  spend: '🧺',
+};
 
-/** Real numbers from the backend's `GET /v1/insights/buyer`, once a buyer has a real paid order. */
-function useRealInsights(): BuyerInsights | null {
+function useRealInsights(): { insights: BuyerInsights | null; loading: boolean } {
   const token = useSession((s) => s.token);
   const [insights, setInsights] = useState<BuyerInsights | null>(null);
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
-    setInsights(null);
-    if (!token) return;
+    setLoading(true);
+    if (!token) {
+      setInsights(null);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     getBuyerInsights(token)
       .then((i) => { if (!cancelled) setInsights(i); })
-      .catch(() => {}); // no real orders yet, or backend unreachable — demo history stands alone
+      .catch(() => { if (!cancelled) setInsights(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [token]);
-  return insights;
+  return { insights, loading };
 }
 
-/** Buyer insights: each card is a headline, a reason, and one tap. */
+/** Buyer insights: real numbers from `GET /v1/insights/buyer`. */
 export default function Insights() {
-  const orders = useOrders((s) => s.orders);
-  // the demo history (3 months) counts toward the totals, so a fresh install shows real numbers
-  const histSaved = BUYER_HISTORY.reduce((s, m) => s + m.savedCents, 0);
-  const histSpend = BUYER_HISTORY.reduce((s, m) => s + m.spendCents, 0);
-  const histBaskets = BUYER_HISTORY.reduce((s, m) => s + m.baskets, 0);
-  const totalSaved = useMemo(() => histSaved + orders.reduce((s, o) => s + o.savingsCents, 0), [orders, histSaved]);
-  const totalSpend = useMemo(() => histSpend + orders.reduce((s, o) => s + o.totalCents, 0), [orders, histSpend]);
-  const baskets = histBaskets + orders.length;
-  const avgSavedPct = totalSpend + totalSaved > 0 ? Math.round((totalSaved / (totalSpend + totalSaved)) * 100) : 0;
-
-  // the demo history covers months before today; the last month is "this month" in the chart
-  const thisMonth = BUYER_HISTORY[BUYER_HISTORY.length - 1]!;
-  const spentThisMonth = thisMonth.spendCents;
-  const budgetPct = Math.min(100, Math.round((spentThisMonth / MONTHLY_GOAL_CENTS) * 100));
-  const chart = BUYER_HISTORY.map((m) => ({ label: m.label, revenueCents: m.spendCents, profitCents: m.savedCents }));
-
-  const nudge = useMemo(() => priceNudge('tomato'), []);
-  const real = useRealInsights();
+  const { insights, loading } = useRealInsights();
 
   return (
     <div className="grid gap-6 pb-32">
       <header>
         <h1 className="t-h1">Your wins</h1>
-        <p className="text-sm text-ink-faint">Estimates from the demo history until the backend is wired.</p>
+        <p className="text-sm text-ink-faint">From your real haggles and orders.</p>
       </header>
 
-      {real && real.orders > 0 && (
-        <section aria-label="Your real orders" className="surface-accent grid gap-3 p-4 sm:p-5">
-          <p className="t-label !text-[#5b3200]">From your real orders</p>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Card icon="💸" value={formatMoneyWhole(real.totalSavedCents)} label="Saved, real orders" tint="text-teal" />
-            <Card icon="🧺" value={String(real.orders)} label="Real orders" tint="text-ink" />
-            <Card icon="📉" value={`${real.avgSavingsPct}%`} label="Average saved vs sticker" tint="text-warn" />
-            <Card icon="🔥" value={String(real.streakDays)} label="Day streak" tint="text-chili" />
-          </div>
-        </section>
+      {loading && <p className="surface p-6 text-center text-sm text-ink-faint">Loading your insights…</p>}
+
+      {!loading && (!insights || insights.orders === 0) && (
+        <p className="surface p-6 text-center text-sm text-ink-faint">
+          Haggle and pay for your first basket to see your wins here.
+        </p>
       )}
 
-      <section aria-label="Key numbers" className="grid grid-cols-2 gap-3">
-        <Card icon="💸" value={formatMoneyWhole(totalSaved)} label="Saved, all baskets" tint="text-teal" />
-        <Card icon="🧺" value={String(baskets)} label="Baskets haggled" tint="text-ink" />
-        <Card icon="📉" value={`${avgSavedPct}%`} label="Average saved vs sticker" tint="text-warn" />
-        <Card icon="🔥" value={String(streakDays(orders.map((o) => o.ts)))} label="Day streak" tint="text-chili" />
-      </section>
+      {insights && insights.orders > 0 && (
+        <>
+          <section aria-label="Key numbers" className="grid grid-cols-2 gap-3">
+            {insights.cards.map((c) => (
+              <div key={c.kind} className="surface p-4">
+                <span className="text-2xl" aria-hidden="true">{CARD_ICON[c.kind]}</span>
+                <p className="mt-1 font-mono text-xl font-black tabular-nums text-ink">{c.title}</p>
+                <p className="text-[11px] text-ink-faint">{c.detail}</p>
+              </div>
+            ))}
+          </section>
 
-      <section aria-labelledby="budget-h" className="grid gap-3 surface p-4">
-        <div className="flex items-baseline justify-between">
-          <h2 id="budget-h" className="text-sm font-semibold text-ink">This month's budget</h2>
-          <span className="text-xs text-ink-faint">{formatMoneyWhole(spentThisMonth)} of {formatMoneyWhole(MONTHLY_GOAL_CENTS)}</span>
-        </div>
-        <div role="progressbar" aria-valuenow={budgetPct} aria-valuemin={0} aria-valuemax={100} aria-label="Budget used" className="h-3 overflow-hidden rounded-full bg-paper-3">
-          <div className="h-full rounded-full bg-marigold" style={{ width: `${budgetPct}%` }} />
-        </div>
-        <p className="text-xs text-ink-faint">
-          {budgetPct >= 100 ? 'Over the goal this month.' : `${100 - budgetPct}% left. Spending is on track.`}
-        </p>
-      </section>
-
-      <section aria-labelledby="trend-h" className="grid gap-3 surface p-4">
-        <h2 id="trend-h" className="text-sm font-semibold text-ink">Spend and saved · last 6 months</h2>
-        <PeriodChart data={chart} label="Monthly spend and savings" legend={['Spend', 'Saved']} />
-        <p className="text-xs text-ink-faint">Spend is {monthOverMonth() >= 0 ? 'up' : 'down'} {Math.abs(monthOverMonth())}% against last month.</p>
-      </section>
-
-      {nudge && (
-        <section aria-labelledby="nudge-h" className="grid gap-2 rounded-3xl border border-teal/40 bg-teal/10 p-4">
-          <h2 id="nudge-h" className="text-sm font-semibold text-ink">Nudge</h2>
-          <p className="text-base font-semibold text-ink">{nudge.headline}</p>
-          <p className="text-sm text-ink-faint">{nudge.reason}</p>
-          <a href={`/app/stall?id=${nudge.shopId}`} className="min-h-11 w-fit rounded-2xl bg-ink px-4 py-2.5 text-sm font-semibold text-paper">
-            Open that stall
-          </a>
-        </section>
+          <section aria-label="Totals" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat label="Orders" value={String(insights.orders)} />
+            <Stat label="Total spent" value={formatMoneyWhole(insights.totalSpentCents)} />
+            <Stat label="Total saved" value={formatMoneyWhole(insights.totalSavedCents)} />
+            <Stat label="Avg. fairness" value={insights.avgFairness != null ? `${insights.avgFairness}%` : '—'} />
+          </section>
+        </>
       )}
 
       <HaggleStyleCard />
@@ -109,44 +79,11 @@ export default function Insights() {
   );
 }
 
-function Card({ icon, value, label, tint }: { icon: string; value: string; label: string; tint: string }) {
+function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="surface p-4">
-      <span className="text-2xl" aria-hidden="true">{icon}</span>
-      <p className={`mt-1 font-mono text-xl font-black tabular-nums ${tint}`}>{value}</p>
-      <p className="text-[11px] text-ink-faint">{label}</p>
+    <div className="grid gap-1 surface p-4">
+      <p className="t-label">{label}</p>
+      <p className="truncate font-mono text-lg font-semibold tabular-nums text-ink">{value}</p>
     </div>
   );
-}
-
-function monthOverMonth(): number {
-  const a = BUYER_HISTORY[BUYER_HISTORY.length - 2]!.spendCents;
-  const b = BUYER_HISTORY[BUYER_HISTORY.length - 1]!.spendCents;
-  return Math.round(((b - a) / a) * 100);
-}
-
-/** Cheapest market price for an item, if it is a different, nearby-cheaper stall. */
-function priceNudge(itemId: 'tomato') {
-  const s = samples(itemId);
-  const nearest = [...s].sort((a, b) => a.distanceM - b.distanceM)[0];
-  const best = s[0];
-  if (!nearest || !best || best.shopId === nearest.shopId || best.priceCents >= nearest.priceCents) return null;
-  const pct = Math.round(((nearest.priceCents - best.priceCents) / nearest.priceCents) * 100);
-  return {
-    shopId: best.shopId,
-    headline: `Tomatoes ${pct}% cheaper ${best.distanceM} m away`,
-    reason: `${best.name} has them for ${formatMoney(best.priceCents)} a kg; ${nearest.name} is at ${formatMoney(nearest.priceCents)}.`,
-  };
-}
-
-/** Consecutive days with a haggle, counting back from today. */
-function streakDays(ts: number[]): number {
-  const days = new Set(ts.map((t) => new Date(t).toDateString()));
-  let n = 0;
-  const d = new Date();
-  while (days.has(d.toDateString())) {
-    n++;
-    d.setDate(d.getDate() - 1);
-  }
-  return n;
 }

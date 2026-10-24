@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { idbStorage } from '@/lib/idb';
-import type { I18nName } from '@/lib/mock/seeds';
+import type { I18nName } from '@/lib/types';
 
 export interface CartLine {
   sku: string;

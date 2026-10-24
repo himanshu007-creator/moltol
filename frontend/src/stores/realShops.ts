@@ -1,18 +1,18 @@
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { getPublicShop, nearbyShops, type NearbyShop, type PublicShopItem } from '@/lib/backend';
-import type { InventoryItem, Shop } from '@/lib/mock/seeds';
-import type { GeoPoint } from '@/lib/mock/discovery';
+import type { InventoryItem, Shop } from '@/lib/types';
+import type { GeoPoint } from '@/lib/geo';
 
 /**
- * Real backend shops near the buyer, fetched from `GET /v1/shops/nearby` and
- * shaped to look exactly like a seeded `Shop` (see `lib/mock/seeds.ts`) so
- * every downstream component (`StallGrid`, `CartSheet`, `bazaar.ts`) keeps
- * working generically — the only new thing is `backendShopId`/
- * `backendItemId`, which `bazaar.ts` checks to decide real vs. local haggle.
- * This is a plain coordinate fetch, not live tracking — see
- * `BE_MISSING_THINGS.md`'s "Live vendor location on the map" for why
- * continuous movement is a separate, not-yet-built feature.
+ * Real backend shops near the buyer, fetched from `GET /v1/shops/nearby`
+ * (`locationUpdatedAt` included — how fresh a "live" pin is) and shaped to
+ * the shared `Shop` type (`lib/types.ts`) so every downstream component
+ * (`StallGrid`, `CartSheet`, `bazaar.ts`) keeps working generically — the
+ * only new thing is `backendShopId`/`backendItemId`, which `bazaar.ts`
+ * checks to decide the lane is real. A seller who shares live location
+ * (`StallHome.tsx`) pushes `PATCH /v1/shops/me/location` every few seconds
+ * while open; this store just re-polls on refetch, same as any other field.
  */
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -68,6 +68,7 @@ function toShop(s: NearbyShop): Shop | null {
     distanceM: s.distanceM,
     persona: (s.persona as Shop['persona']) || 'analyst',
     products: [], // fetched lazily on stall entry — see useRealShopProducts
+    locationUpdatedAt: s.locationUpdatedAt,
   };
 }
 

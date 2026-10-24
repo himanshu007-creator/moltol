@@ -5,21 +5,18 @@ import { useVenue, splitNearby } from '@/stores/venue';
 import { useLiveShops } from '@/stores/inventory';
 import { useRealShops } from '@/stores/realShops';
 import { useYou, distancesFrom, ENTER_RADIUS_M } from '@/stores/you';
-import { haversineM, BAZAAR_CENTER, type GeoPoint } from '@/lib/mock/discovery';
+import { haversineM, type GeoPoint } from '@/lib/geo';
 import { useI18n } from '@/stores/prefs';
 import LeafletMap from '@/components/discovery/LeafletMap';
 
 /** GPS waits this long for a first fix, then falls back to "off". */
 const GPS_TIMEOUT_MS = 8000;
-/** Beyond this, a real GPS fix is from a tester nowhere near the demo bazaar
- *  (the common case) — show it honestly instead of pretending you're local. */
-const GPS_TOO_FAR_M = 1500;
 
 /**
- * Nearby discovery. One position store drives the map, the distance order and the
- * proximity prompt. Position is real GPS when the browser gives it (shown with its
- * true distance, however far that is), otherwise the bazaar centre — plus a demo
- * helper to teleport next to the real shops and try the proximity flow.
+ * Nearby discovery. One position store drives the map, the distance order and
+ * the proximity prompt. There's no fallback centre — real shops can be
+ * anywhere, so until the browser gives a real GPS fix, there's nothing to
+ * show distances against.
  */
 export default function ShopDiscovery() {
   const { t } = useI18n();
@@ -28,46 +25,37 @@ export default function ShopDiscovery() {
   const point = useYou((s) => s.point);
   const source = useYou((s) => s.source);
   const setGps = useYou((s) => s.setGps);
-  const placeNearShop = useYou((s) => s.placeNearShop);
+  const setDenied = useYou((s) => s.setDenied);
 
-  const [gps, setGpsState] = useState<'locating' | 'ok' | 'denied' | 'far'>('locating');
   const [watchKey, setWatchKey] = useState(0);
   // "Not now" silences the prompt until the buyer has moved at least 50 m from where they dismissed it
   const [dismissedAt, setDismissedAt] = useState<GeoPoint | null>(null);
   const [picking, setPicking] = useState(false);
   const [satellite, setSatellite] = useState(false);
-  const quiet = dismissedAt !== null && haversineM(point, dismissedAt) < 50;
+  const quiet = point !== null && dismissedAt !== null && haversineM(point, dismissedAt) < 50;
   const fetchNearby = useRealShops((s) => s.fetchNearby);
 
-  // real backend shops near the buyer, additive to the seeded demo ones (fails
-  // silently if the backend is unreachable — useLiveShops() just keeps the
-  // seeded list in that case)
+  // real backend shops near the buyer, once a real position exists (fails
+  // silently if the backend is unreachable — useLiveShops() just stays empty)
   useEffect(() => {
-    void fetchNearby(point);
+    if (point) void fetchNearby(point);
   }, [point, fetchNearby]);
 
   // live GPS when the browser allows it; a timeout ends "locating" either way
   useEffect(() => {
-    setGpsState('locating');
     if (!('geolocation' in navigator)) {
-      setGpsState('denied');
+      setDenied();
       return;
     }
-    const timer = setTimeout(() => setGpsState((s) => (s === 'locating' ? 'denied' : s)), GPS_TIMEOUT_MS);
+    const timer = setTimeout(setDenied, GPS_TIMEOUT_MS);
     const id = navigator.geolocation.watchPosition(
       (pos) => {
         clearTimeout(timer);
-        const fix = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        if (haversineM(fix, BAZAAR_CENTER) > GPS_TOO_FAR_M) {
-          setGpsState('far');
-          return;
-        }
-        setGps(fix);
-        setGpsState('ok');
+        setGps({ lat: pos.coords.latitude, lng: pos.coords.longitude });
       },
       () => {
         clearTimeout(timer);
-        setGpsState('denied');
+        setDenied();
       },
       { enableHighAccuracy: true, timeout: GPS_TIMEOUT_MS, maximumAge: 15_000 },
     );
@@ -75,15 +63,16 @@ export default function ShopDiscovery() {
       clearTimeout(timer);
       navigator.geolocation.clearWatch(id);
     };
-  }, [watchKey, setGps]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchKey, setGps, setDenied]);
 
-  const dists = useMemo(() => distancesFrom(point, shops), [point, shops]);
+  const dists = useMemo(() => (point ? distancesFrom(point, shops) : {}), [point, shops]);
   const { open: sorted, closed } = useMemo(() => splitNearby(shops, stalls, dists), [shops, stalls, dists]);
 
   // every open shop you're standing next to, nearest first — not just one
   const nearbyList = useMemo(
-    () => (source === 'default' || quiet ? [] : sorted.filter((s) => (dists[s.id] ?? Infinity) <= ENTER_RADIUS_M)),
-    [source, quiet, sorted, dists],
+    () => (!point || quiet ? [] : sorted.filter((s) => (dists[s.id] ?? Infinity) <= ENTER_RADIUS_M)),
+    [point, quiet, sorted, dists],
   );
 
   const pins = [
@@ -94,18 +83,31 @@ export default function ShopDiscovery() {
   const statusLine =
     source === 'gps'
       ? t('discovery.status.gps')
-      : source === 'placed'
-        ? t('discovery.status.placed')
-        : gps === 'locating'
-          ? t('discovery.status.locating')
-          : gps === 'far'
-            ? t('discovery.status.far')
-            : t('discovery.status.off');
+      : source === 'locating'
+        ? t('discovery.status.locating')
+        : t('discovery.status.off');
 
   const enterShop = (id: string) => {
     setPicking(false);
     void navigate(`/app/stall?id=${id}`);
   };
+
+  if (!point) {
+    return (
+      <div className="surface grid justify-items-center gap-4 p-10 text-center">
+        <span className="grid h-20 w-20 place-items-center rounded-3xl bg-paper-3 text-4xl" aria-hidden="true">📍</span>
+        <div>
+          <p className="t-h2">{statusLine}</p>
+          {source === 'denied' && <p className="mt-1 text-ink-muted">{t('discovery.shareLocation')}</p>}
+        </div>
+        {source === 'denied' && (
+          <button type="button" onClick={() => setWatchKey((k) => k + 1)} className="btn btn-primary">
+            {t('discovery.tryGps')}
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:items-start lg:gap-6">
@@ -118,9 +120,6 @@ export default function ShopDiscovery() {
         <LeafletMap point={point} pins={pins} satellite={satellite} />
 
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={placeNearShop} className="btn btn-quiet !min-h-11 !px-4 !text-sm transition active:scale-95">
-            {t('discovery.placeMe')}
-          </button>
           <button
             type="button"
             onClick={() => setSatellite((v) => !v)}
@@ -129,11 +128,6 @@ export default function ShopDiscovery() {
           >
             {satellite ? t('discovery.street') : t('discovery.satellite')}
           </button>
-          {(gps === 'denied' || gps === 'far') && (
-            <button type="button" onClick={() => setWatchKey((k) => k + 1)} className="btn btn-quiet !min-h-11 !px-4 !text-sm transition active:scale-95">
-              {t('discovery.tryGps')}
-            </button>
-          )}
         </div>
       </section>
 
@@ -152,6 +146,7 @@ export default function ShopDiscovery() {
                       {Math.round(dists[s.id] ?? 0)} m · {s.persona}
                     </span>
                   </span>
+                  <LiveBadge updatedAt={s.locationUpdatedAt} />
                   <span className="pill pill-teal">{t('discovery.open')}</span>
                   <span className="text-chili" aria-hidden="true">→</span>
                 </a>
@@ -211,6 +206,13 @@ export default function ShopDiscovery() {
       </AnimatePresence>
     </div>
   );
+}
+
+/** A small "live" pill when a shop's pin moved recently — silent otherwise. */
+const LIVE_FRESH_MS = 2 * 60_000;
+function LiveBadge({ updatedAt }: { updatedAt?: number | null }) {
+  if (!updatedAt || Date.now() - updatedAt > LIVE_FRESH_MS) return null;
+  return <span className="pill pill-marigold">📡 live</span>;
 }
 
 const promptMotion = {

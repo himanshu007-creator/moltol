@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useInventory } from '@/stores/inventory';
+import { useSession } from '@/stores/session';
+import type { ShopItem } from '@/lib/backend';
 import { marginPct } from '@/lib/inventory';
 import { formatMoney } from '@/lib/money';
-import { UNITS, formatQty, roundQty } from '@/lib/units';
+import { UNITS, formatQty, roundQty, type UnitId } from '@/lib/units';
 import { cn } from '@/lib/cn';
-import type { StockItem } from '@/lib/inventory';
 import AddItem from '@/components/vendor/AddItem';
 import ItemForm, { EMPTY_FORM, type FormValues } from '@/components/vendor/ItemForm';
 
@@ -12,39 +13,37 @@ type Tab = 'stock' | 'add';
 type Filter = 'all' | 'low' | 'out' | 'archived';
 const REASONS = ['Restock', 'Counted', 'Spoiled', 'Sold outside app'] as const;
 
-function isLow(i: StockItem) {
-  return !i.archived && i.qty > 0 && i.qty <= i.lowStockAt;
+function isLow(i: ShopItem) {
+  const qty = i.quantity ?? 0;
+  return !i.archived && qty > 0 && qty <= (i.lowStockAt ?? 0);
 }
 
-function toForm(i: StockItem): FormValues {
+function toForm(i: ShopItem): FormValues {
   return {
-    photo: i.photo ?? '',
+    photo: '',
     name: i.name,
-    category: i.category,
-    emoji: i.emoji,
-    unit: i.unit,
+    category: i.category ?? 'general',
+    emoji: i.emoji ?? '🛒',
+    unit: (i.unit ?? 'kg') as UnitId,
     customUnit: i.customUnit ?? '',
     packSize: i.packSize ? String(i.packSize) : '',
-    qty: String(i.qty),
-    cost: String(i.costCents / 100),
-    min: String(i.minCents / 100),
-    list: String(i.listCents / 100),
-    lowStockAt: String(i.lowStockAt),
-    compKey: i.compKey,
+    qty: String(i.quantity ?? 0),
+    cost: String((i.costCents ?? 0) / 100),
+    min: String(i.floorCents / 100),
+    list: String(i.sellCents / 100),
+    lowStockAt: String(i.lowStockAt ?? 5),
   };
 }
 
-/** Vendor inventory: add (4 ways), list with stock adjust, edit, bulk and archive, undo. */
+/** Vendor inventory: add (4 ways), list with stock adjust, edit and bulk list-price changes. */
 export default function InventoryManager() {
   const items = useInventory((s) => s.items);
   const log = useInventory((s) => s.log);
-  const undo = useInventory((s) => s.undo);
-  const runUndo = useInventory((s) => s.runUndo);
-  const dismissUndo = useInventory((s) => s.dismissUndo);
+  const loaded = useInventory((s) => s.loaded);
+  const fetchItems = useInventory((s) => s.fetch);
   const adjust = useInventory((s) => s.adjust);
-  const setArchived = useInventory((s) => s.setArchived);
   const bulkListPct = useInventory((s) => s.bulkListPct);
-  const resetDemo = useInventory((s) => s.resetDemo);
+  const token = useSession((s) => s.token);
 
   const [tab, setTab] = useState<Tab>('stock');
   const [filter, setFilter] = useState<Filter>('all');
@@ -53,18 +52,15 @@ export default function InventoryManager() {
   const [picked, setPicked] = useState<string[]>([]);
   const [form, setForm] = useState<{ key: number; values: FormValues; editingId?: string }>({ key: 0, values: EMPTY_FORM });
 
-  // undo toast disappears after a few seconds
   useEffect(() => {
-    if (!undo) return;
-    const t = setTimeout(dismissUndo, 6000);
-    return () => clearTimeout(t);
-  }, [undo, dismissUndo]);
+    if (token && !loaded) void fetchItems(token);
+  }, [token, loaded, fetchItems]);
 
   const counts = useMemo(
     () => ({
       active: items.filter((i) => !i.archived).length,
       low: items.filter(isLow).length,
-      out: items.filter((i) => !i.archived && i.qty === 0).length,
+      out: items.filter((i) => !i.archived && (i.quantity ?? 0) === 0).length,
       archived: items.filter((i) => i.archived).length,
     }),
     [items],
@@ -75,8 +71,8 @@ export default function InventoryManager() {
     return items.filter((i) => {
       if (filter === 'archived' ? !i.archived : i.archived) return false;
       if (filter === 'low' && !isLow(i)) return false;
-      if (filter === 'out' && !(i.qty === 0 && !i.archived)) return false;
-      return !q || i.name.toLowerCase().includes(q) || i.category.toLowerCase().includes(q);
+      if (filter === 'out' && !((i.quantity ?? 0) === 0 && !i.archived)) return false;
+      return !q || i.name.toLowerCase().includes(q) || (i.category ?? '').toLowerCase().includes(q);
     });
   }, [items, filter, query]);
 
@@ -172,13 +168,18 @@ export default function InventoryManager() {
           {picked.length > 0 && (
             <div role="toolbar" aria-label="Bulk actions" className="flex flex-wrap items-center gap-2 rounded-2xl bg-ink p-3 text-paper">
               <span className="px-2 text-sm font-medium">{picked.length} selected</span>
-              <button type="button" className="min-h-11 rounded-xl bg-paper/15 px-3 text-sm" onClick={() => { bulkListPct(picked, 5); }}>
+              <button type="button" className="min-h-11 rounded-xl bg-paper/15 px-3 text-sm" onClick={() => { if (token) void bulkListPct(token, picked, 5); }}>
                 List +5%
               </button>
-              <button type="button" className="min-h-11 rounded-xl bg-paper/15 px-3 text-sm" onClick={() => { bulkListPct(picked, -5); }}>
+              <button type="button" className="min-h-11 rounded-xl bg-paper/15 px-3 text-sm" onClick={() => { if (token) void bulkListPct(token, picked, -5); }}>
                 List −5%
               </button>
-              <button type="button" className="min-h-11 rounded-xl bg-paper/15 px-3 text-sm" onClick={() => { setArchived(picked, filter !== 'archived'); setPicked([]); }}>
+              <button
+                type="button"
+                disabled
+                title="Archiving isn't available yet — the backend has no write path for it."
+                className="min-h-11 rounded-xl bg-paper/15 px-3 text-sm opacity-50"
+              >
                 {filter === 'archived' ? 'Restore' : 'Archive'}
               </button>
               <button type="button" className="min-h-11 rounded-xl px-3 text-sm underline" onClick={() => setPicked([])}>
@@ -191,8 +192,10 @@ export default function InventoryManager() {
 
           <ul className="grid gap-3">
             {shown.map((i) => {
-              const step = UNITS[i.unit].step;
-              const m = marginPct(i.listCents, i.costCents);
+              const unit = (i.unit ?? 'kg') as UnitId;
+              const step = UNITS[unit].step;
+              const m = marginPct(i.sellCents, i.costCents ?? 0);
+              const qty = i.quantity ?? 0;
               return (
                 <li key={i.id} className={cn('grid gap-3 surface p-4 sm:grid-cols-[auto_1fr_auto] sm:items-center', i.archived && 'opacity-60')}>
                   <label className="flex items-center gap-3">
@@ -203,31 +206,27 @@ export default function InventoryManager() {
                       onChange={() => toggle(i.id)}
                       aria-label={`Select ${i.name}`}
                     />
-                    {i.photo ? (
-                      <img src={i.photo} alt="" className="h-12 w-12 rounded-2xl object-cover" />
-                    ) : (
-                      <span className="text-3xl" aria-hidden="true">{i.emoji}</span>
-                    )}
+                    <span className="text-3xl" aria-hidden="true">{i.emoji ?? '🛒'}</span>
                   </label>
 
                   <div className="min-w-0">
                     <p className="flex flex-wrap items-center gap-2 font-semibold text-ink">
                       {i.name}
-                      {i.qty === 0 && !i.archived && <Chip tone="chili">Out</Chip>}
+                      {qty === 0 && !i.archived && <Chip tone="chili">Out</Chip>}
                       {isLow(i) && <Chip tone="marigold">Low</Chip>}
                       {i.archived && <Chip tone="ink">Archived</Chip>}
                     </p>
-                    <p className="text-xs text-ink-faint">{i.category} · cost {formatMoney(i.costCents)} · lowest <span className="text-chili">{formatMoney(i.minCents)}</span> · margin {m}%</p>
+                    <p className="text-xs text-ink-faint">{i.category ?? 'general'} · cost {formatMoney(i.costCents ?? 0)} · lowest <span className="text-chili">{formatMoney(i.floorCents)}</span> · margin {m}%</p>
                     <p className="mt-1 text-lg font-bold tabular-nums text-ink">
-                      {formatMoney(i.listCents)} <span className="text-xs font-normal text-ink-faint">per {i.unit === 'custom' ? i.customUnit : UNITS[i.unit].label}</span>
+                      {formatMoney(i.sellCents)} <span className="text-xs font-normal text-ink-faint">per {unit === 'custom' ? i.customUnit : UNITS[unit].label}</span>
                     </p>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                     <div className="flex items-center rounded-2xl bg-paper-3 p-1" role="group" aria-label={`Stock for ${i.name}`}>
-                      <button type="button" aria-label="Remove one step" disabled={i.qty <= 0 || i.archived} onClick={() => adjust(i.id, -step, reason)} className="h-11 w-11 rounded-xl bg-paper text-lg font-bold disabled:opacity-40">−</button>
-                      <span className="min-w-[5rem] text-center text-sm font-semibold tabular-nums text-ink">{formatQty(roundQty(i.qty), i.unit, i.customUnit)}</span>
-                      <button type="button" aria-label="Add one step" disabled={i.archived} onClick={() => adjust(i.id, step, reason)} className="h-11 w-11 rounded-xl bg-paper text-lg font-bold disabled:opacity-40">+</button>
+                      <button type="button" aria-label="Remove one step" disabled={qty <= 0 || !!i.archived} onClick={() => token && void adjust(token, i.id, -step, reason)} className="h-11 w-11 rounded-xl bg-paper text-lg font-bold disabled:opacity-40">−</button>
+                      <span className="min-w-[5rem] text-center text-sm font-semibold tabular-nums text-ink">{formatQty(roundQty(qty), unit, i.customUnit ?? undefined)}</span>
+                      <button type="button" aria-label="Add one step" disabled={!!i.archived} onClick={() => token && void adjust(token, i.id, step, reason)} className="h-11 w-11 rounded-xl bg-paper text-lg font-bold disabled:opacity-40">+</button>
                     </div>
                     <button type="button" onClick={() => openForm(toForm(i), i.id)} className="min-h-11 rounded-xl px-3 text-sm font-medium text-indigo underline">
                       Edit
@@ -251,22 +250,7 @@ export default function InventoryManager() {
               </ul>
             </details>
           )}
-
-          <div className="flex justify-end">
-            <button type="button" onClick={() => resetDemo()} className="min-h-11 rounded-xl px-3 text-xs text-ink-faint underline">
-              Reset demo stock
-            </button>
-          </div>
         </section>
-      )}
-
-      {undo && (
-        <div role="status" aria-live="polite" className="fixed inset-x-4 bottom-[calc(env(safe-area-inset-bottom)+5rem)] z-50 mx-auto flex max-w-md items-center gap-3 rounded-2xl bg-ink px-4 py-3 text-paper shadow-xl">
-          <p className="flex-1 text-sm">{undo.label}</p>
-          <button type="button" onClick={runUndo} className="min-h-11 rounded-xl bg-marigold px-4 text-sm font-semibold text-[#23180a]">
-            Undo
-          </button>
-        </div>
       )}
     </div>
   );

@@ -84,4 +84,19 @@ frontend still runs on its mocks** — wiring `stores/bazaar.ts`, `PayFlow.tsx`,
 "Backend pass, 2026-10-16" below for the exact contract, what is deliberately
 not done, and why.
 
+**Update, backend pass (2026-10-16):** the structural gap above is closed on the
+backend side. A basket is now a real backend object: `POST /v1/baskets` haggles
+every line against a real shop's real prices (a per-line reserve above the
+vendor's `floorCents` sealed as the shop's limit, the list price as the buyer's ceiling), one negotiation per line
+with `lineItemId` = that line's negotiation id, streamed over one SSE stream,
+with human takeover / counter / accept / accept-all as server actions, one PayPal
+order for the whole basket, a proof per line, and `GET /v1/orders`. Discovery
+(`/v1/shops/nearby`), stall open/close with live fan-out, logout and session
+revocation, rate limiting, and the role/preset preferences exist too. **The
+frontend still runs on its mocks** — wiring `stores/bazaar.ts`, `PayFlow.tsx`,
+`venue.ts` and discovery to these endpoints is the next (frontend) step. See
+"Backend pass, 2026-10-16" below for the exact contract, what is deliberately
+not done, and why.
+
 **Update, 2026-10-25:** Inventory model extended (migration `0010_modern_inventory`), soft-delete/archive support, stock adjustments with audit trail, `locationUpdatedAt` on shops, `POST /v1/shops/me/items/:id/adjust` endpoint added. Channel3 API fixed to use `api.trychannel3.com` with correct auth. `POST /v1/search/products` added for FE compatibility. Standalone negotiation now always converges (Option A) — engine clamps floor for standalone demo. Demo works without photo storage (snap uses inline data URLs).
+

@@ -29,8 +29,7 @@ export default function Orders() {
     return () => clearTimeout(t);
   }, []);
 
-  // Real backend orders, additive to the local-only demo ones — fails silently
-  // if the backend is unreachable, same fail-soft pattern used throughout.
+  // Fails silently if the backend is unreachable, same fail-soft pattern used throughout.
   useEffect(() => {
     if (!token) return;
     listOrders(token)
