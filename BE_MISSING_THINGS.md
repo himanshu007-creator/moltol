@@ -660,4 +660,3 @@ sponsor list per `plan.md`.
 - [x] **Ops keys** — SerpAPI/LLM unset on live instance (fallbacks). SMTP/Brevo configured for OTP emails.
 =======
 **Update, 2026-10-25:** Inventory model extended (migration `0010_modern_inventory`), soft-delete/archive support, stock adjustments with audit trail, `locationUpdatedAt` on shops, `POST /v1/shops/me/items/:id/adjust` endpoint added. Channel3 API fixed to use `api.trychannel3.com` with correct auth. `POST /v1/search/products` added for FE compatibility. Standalone negotiation now always converges (Option A) — engine clamps floor for standalone demo. Demo works without photo storage (snap uses inline data URLs).
->>>>>>> 9a31c6f (feat: modern inventory + archive/adjust + product search + Channel3 fix)
