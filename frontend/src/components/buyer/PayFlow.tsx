@@ -24,8 +24,8 @@ const Handshake = lazy(() => import("../theatre/Handshake"));
 type Stage = "ready" | "paying" | "proof" | "done";
 
 /**
- * Settle the agreed prices. The payment is a mock PayPal-style sandbox sheet:
- * order created → approved → captured, then the proof reveal and the receipt.
+ * Settle the agreed prices against the real basket: PayPal sandbox checkout,
+ * order created → approved → captured, then the real proof reveal and receipt.
  */
 export default function PayFlow() {
   const bz = useBazaar();
@@ -94,67 +94,41 @@ export default function PayFlow() {
     setPayError(null);
     setStage("paying");
 
-    if (bz.basketId) {
-      const token = useSession.getState().token;
-      if (!token) {
-        setPayError("Your session expired. Log in again.");
-        setStage("ready");
-        return;
-      }
-      setOrderId(bz.basketId);
-      setRealStep("order_created");
-      try {
-        const checkout = checkoutFailed
-          ? await retryBasketCheckout(token, bz.basketId)
-          : await checkoutBasket(token, bz.basketId);
-        setCharge(checkout);
-        setCheckoutFailed(false);
-        setRealStep("approved");
-        if (checkout.approveUrl) {
-          setApproveUrl(checkout.approveUrl);
-          window.open(checkout.approveUrl, "_blank", "noopener");
-          return; // wait for "I've approved it" below
-        }
-        await finishCapture(token, bz.basketId);
-      } catch (e) {
-        setPayError(
-          e instanceof BackendAuthError
-            ? e.detail || e.title
-            : "Checkout failed. Try again.",
-        );
-        setCheckoutFailed(true);
-        setStage("ready");
-      }
+    if (!bz.basketId) {
+      setPayError("This basket isn't real — nothing to pay.");
+      setStage("ready");
       return;
     }
-
-    // Local mock path: a sandbox PayPal-style sheet, order_created → approved → captured.
-    const id = "order-" + Date.now().toString(36);
-    setOrderId(id);
-    orders.create({
-      id,
-      shopId: bz.shopId,
-      shopName: bz.shopName.en,
-      shopEmoji: bz.shopEmoji,
-      lines: agreed.map((l) => ({
-        sku: l.sku,
-        title: l.title.en,
-        emoji: l.emoji,
-        unit: l.unit,
-        qty: l.qty,
-        unitCents: l.qty ? Math.round(l.agreedCents! / l.qty) : 0,
-      })),
-      totalCents: sum.totalAgreedCents,
-      marketCents: sum.totalMarketCents,
-      savingsCents: sum.totalSavedCents,
-      fairness: Math.round(sum.fairness),
-    });
-    setTimeout(() => orders.setPaymentStatus(id, "approved"), 600);
-    setTimeout(() => {
-      orders.setPaymentStatus(id, "captured");
-      orders.markProof(id);
-      setStage("proof");
-    }, 1300);
+    const token = useSession.getState().token;
+    if (!token) {
+      setPayError("Your session expired. Log in again.");
+      setStage("ready");
+      return;
+    }
+    setOrderId(bz.basketId);
+    setRealStep("order_created");
+    try {
+      const checkout = checkoutFailed
+        ? await retryBasketCheckout(token, bz.basketId)
+        : await checkoutBasket(token, bz.basketId);
+      setCharge(checkout);
+      setCheckoutFailed(false);
+      setRealStep("approved");
+      if (checkout.approveUrl) {
+        setApproveUrl(checkout.approveUrl);
+        window.open(checkout.approveUrl, "_blank", "noopener");
+        return; // wait for "I've approved it" below
+      }
+      await finishCapture(token, bz.basketId);
+    } catch (e) {
+      setPayError(
+        e instanceof BackendAuthError
+          ? e.detail || e.title
+          : "Checkout failed. Try again.",
+      );
+      setCheckoutFailed(true);
+      setStage("ready");
+    }
   };
 
   const shopAgain = () => {
@@ -188,7 +162,7 @@ export default function PayFlow() {
   }
 
   if (stage === "paying") {
-    const paid = bz.basketId ? realStep : order?.paymentStatus;
+    const paid = realStep;
     const steps = [
       { label: "Order created", done: true },
       {
@@ -201,9 +175,7 @@ export default function PayFlow() {
       <div className="grid min-h-[60dvh] place-items-center py-8">
         <div className="grid w-full max-w-sm gap-5 rounded-3xl bg-ink p-6 shadow-2xl">
           <div className="flex items-center justify-between">
-            <span className="pill !bg-paper/15 !text-paper">
-              {bz.basketId ? "PayPal sandbox" : "Sandbox demo"}
-            </span>
+            <span className="pill !bg-paper/15 !text-paper">PayPal sandbox</span>
             <span className="t-num text-xs text-paper/60">{orderId}</span>
           </div>
           <div>
@@ -247,8 +219,7 @@ export default function PayFlow() {
                 type="button"
                 onClick={() => {
                   const token = useSession.getState().token;
-                  if (token && bz.basketId)
-                    void finishCapture(token, bz.basketId);
+                  if (token && bz.basketId) void finishCapture(token, bz.basketId);
                 }}
                 className="btn btn-primary !min-h-11"
               >
@@ -261,11 +232,7 @@ export default function PayFlow() {
               {payError}
             </p>
           )}
-          <p className="text-xs text-paper/60">
-            {bz.basketId
-              ? `Sandbox PayPal — no real money moves. ${session.name}`
-              : `Demo payment, no real money moves. The seller sees totals only after you share the receipt. ${session.name}`}
-          </p>
+          <p className="text-xs text-paper/60">Sandbox PayPal — no real money moves. {session.name}</p>
         </div>
       </div>
     );

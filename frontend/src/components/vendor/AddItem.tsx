@@ -3,7 +3,6 @@ import { useInventory } from "@/stores/inventory";
 import {
   CSV_FIELDS,
   CSV_LABELS,
-  SNAP_SUGGESTIONS,
   guessMapping,
   parseCsv,
   parseVoiceLine,
@@ -15,7 +14,6 @@ import { UNITS, UNIT_WORDS, type UnitId } from "@/lib/units";
 import { cn } from "@/lib/cn";
 import type { FormValues } from "@/components/vendor/ItemForm";
 import {
-  detectItems,
   searchItems,
   toThumb,
   type Detection,
@@ -89,6 +87,7 @@ export default function AddItem({
 
 function CsvImport() {
   const importMany = useInventory((s) => s.importMany);
+  const token = useSession((s) => s.token);
   const [rows, setRows] = useState<string[][]>([]);
   const [fileName, setFileName] = useState("");
   const [map, setMap] = useState<Record<CsvField, number> | null>(null);
@@ -215,9 +214,25 @@ function CsvImport() {
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
-              disabled={valid.length === 0}
+              disabled={valid.length === 0 || !token}
               onClick={() => {
-                setDone(importMany(valid.map((r) => r.draft!)));
+                if (!token) return;
+                void importMany(
+                  token,
+                  valid.map((r) => ({
+                    name: r.draft!.name,
+                    category: r.draft!.category,
+                    emoji: r.draft!.emoji,
+                    unit: r.draft!.unit,
+                    customUnit: r.draft!.customUnit,
+                    packSize: r.draft!.packSize,
+                    quantity: r.draft!.qty,
+                    costCents: r.draft!.costCents,
+                    floorCents: r.draft!.minCents,
+                    sellCents: r.draft!.listCents,
+                    lowStockAt: r.draft!.lowStockAt,
+                  })),
+                ).then(setDone);
                 setRows([]);
                 setFileName("");
               }}
@@ -233,7 +248,7 @@ function CsvImport() {
       )}
       {done != null && (
         <p role="status" className="text-sm font-medium text-teal">
-          ✓ Imported {done} items. You can undo from the toast.
+          ✓ Imported {done} items.
         </p>
       )}
     </div>
@@ -382,40 +397,33 @@ const SOURCE_LABEL = {
   "serpapi-shopping": "Shopping search (SerpAPI)",
 } as const;
 
-/**
- * A logged-in seller's photo goes to the real, authenticated backend first
- * (`POST /v1/inventory/snap`) — a different, proper endpoint from the
- * `lib/vision.ts` chain below, which targets the dev-only local proxy and
- * never sends a session token. Falls through to that existing chain (vision
- * → SerpAPI Lens → offline catalogue) on no token, no suggestions, or any
- * error, so nothing that worked before stops working.
- */
+/** The real, authenticated snap endpoint (`POST /v1/inventory/snap`) — no local/offline fallback. */
 async function detectVia(thumb: string, token: string | null): Promise<Detection> {
-  if (token) {
-    try {
-      const real = await snapInventory(token, thumb);
-      if (real.suggestions.length) {
-        return {
-          suggestions: real.suggestions.map((s) => ({
-            name: s.name,
-            category: "general",
-            emoji: s.emoji,
-            unit: (s.unit && UNIT_WORDS[s.unit.toLowerCase()]) || ("piece" as UnitId),
-            listCents: s.sellCents ?? 0,
-            compKey: undefined,
-          })),
-          source: real.source,
-          note:
-            real.source === "vision"
-              ? "Recognised by the vision model."
-              : "Matched against the shop catalogue.",
-        };
-      }
-    } catch {
-      // No real shop yet, or the backend's own snap fell back to nothing useful — try the rest of the chain.
-    }
+  if (!token) {
+    return { suggestions: [], source: "catalogue", note: "Log in to a real shop to use the camera." };
   }
-  return detectItems(thumb);
+  try {
+    const real = await snapInventory(token, thumb);
+    return {
+      suggestions: real.suggestions.map((s) => ({
+        name: s.name,
+        category: "general",
+        emoji: s.emoji,
+        unit: (s.unit && UNIT_WORDS[s.unit.toLowerCase()]) || ("piece" as UnitId),
+        listCents: s.sellCents ?? 0,
+        compKey: undefined,
+      })),
+      source: real.source,
+      note:
+        real.source === "vision"
+          ? "Recognised by the vision model."
+          : real.suggestions.length
+            ? "Matched against the shop catalogue."
+            : "Couldn't recognise this photo — search by name instead.",
+    };
+  } catch {
+    return { suggestions: [], source: "catalogue", note: "Couldn't reach the backend — try again." };
+  }
 }
 
 function SnapAdd({

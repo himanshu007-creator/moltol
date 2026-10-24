@@ -1,5 +1,7 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
-import { useInventory, type NewItem } from '@/stores/inventory';
+import { useInventory } from '@/stores/inventory';
+import { useSession } from '@/stores/session';
+import type { ShopItemInput } from '@/lib/backend';
 import { checkPrices } from '@/lib/inventory';
 import { formatMoney, parseMoneyToCents } from '@/lib/money';
 import { UNITS, UNIT_IDS, clampQty, type UnitId } from '@/lib/units';
@@ -42,8 +44,8 @@ const EMOJIS = ['🍅', '🧅', '🥔', '🌿', '🍋', '🥚', '🥛', '🍌', 
 const field = 'min-h-11 w-full rounded-2xl border border-chalk bg-paper px-3 text-base text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-marigold';
 const label = 't-label';
 
-/** Validates the form and returns a NewItem, or the first friendly error per field. */
-export function toDraft(v: FormValues): { draft?: NewItem; errors: Partial<Record<keyof FormValues, string>>; prices?: ReturnType<typeof checkPrices> } {
+/** Validates the form and returns a ShopItemInput, or the first friendly error per field. */
+export function toDraft(v: FormValues): { draft?: ShopItemInput; errors: Partial<Record<keyof FormValues, string>>; prices?: ReturnType<typeof checkPrices> } {
   const errors: Partial<Record<keyof FormValues, string>> = {};
   if (!v.name.trim()) errors.name = 'Give the item a name.';
   const qty = Number(v.qty || 0);
@@ -78,13 +80,11 @@ export function toDraft(v: FormValues): { draft?: NewItem; errors: Partial<Recor
       unit: v.unit,
       customUnit: v.unit === 'custom' ? v.customUnit.trim() : undefined,
       packSize: v.packSize && Number(v.packSize) > 0 ? Number(v.packSize) : undefined,
-      qty: clampQty(qty, v.unit),
+      quantity: clampQty(qty, v.unit),
       costCents: cost,
-      minCents: min,
-      listCents: list,
+      floorCents: min,
+      sellCents: list,
       lowStockAt: Number(v.lowStockAt) >= 0 ? Number(v.lowStockAt) : 5,
-      compKey: v.compKey,
-      photo: v.photo || undefined,
     },
   };
 }
@@ -102,10 +102,13 @@ export default function ItemForm({
   const [v, setV] = useState<FormValues>(initial);
   const [touched, setTouched] = useState(false);
   const [photoErr, setPhotoErr] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
   // a field's error shows once the user has edited it; any price edit reveals the price rules
   const [dirty, setDirty] = useState<Partial<Record<keyof FormValues, boolean>>>({});
   const add = useInventory((s) => s.add);
   const update = useInventory((s) => s.update);
+  const token = useSession((s) => s.token);
 
   const { draft, errors, prices } = useMemo(() => toDraft(v), [v]);
   const set = (k: keyof FormValues) => (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -120,12 +123,20 @@ export default function ItemForm({
   const min = parseMoneyToCents(v.min);
   const list = parseMoneyToCents(v.list);
 
-  const save = () => {
+  const save = async () => {
     setTouched(true);
-    if (!draft) return;
-    if (editingId) update(editingId, draft);
-    else add(draft);
-    onDone();
+    if (!draft || !token) return;
+    setSaving(true);
+    setSaveErr(null);
+    try {
+      if (editingId) await update(token, editingId, draft);
+      else await add(token, draft);
+      onDone();
+    } catch {
+      setSaveErr('Could not save this item. Try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -133,7 +144,7 @@ export default function ItemForm({
       className="grid gap-4"
       onSubmit={(e) => {
         e.preventDefault();
-        save();
+        void save();
       }}
       noValidate
     >
@@ -167,6 +178,7 @@ export default function ItemForm({
               Remove photo
             </button>
           )}
+          <span className="text-[11px] text-ink-faint">Shown on this device only — photos aren't saved to the stall yet.</span>
           {photoErr && <p role="alert" className="text-xs text-chili">{photoErr}</p>}
         </div>
       </div>
@@ -269,14 +281,15 @@ export default function ItemForm({
       </label>
 
       <div className="flex flex-wrap items-center gap-3">
-        <button type="submit" className="min-h-11 rounded-2xl bg-marigold px-6 py-2.5 font-semibold text-[#23180a] active:scale-95 disabled:opacity-40" disabled={touched && !draft}>
-          {editingId ? 'Save changes' : 'Add to stall'}
+        <button type="submit" className="min-h-11 rounded-2xl bg-marigold px-6 py-2.5 font-semibold text-[#23180a] active:scale-95 disabled:opacity-40" disabled={(touched && !draft) || saving}>
+          {saving ? 'Saving…' : editingId ? 'Save changes' : 'Add to stall'}
         </button>
         <button type="button" onClick={onDone} className="min-h-11 rounded-2xl px-4 text-sm font-medium text-ink-faint">
           Cancel
         </button>
         {!touched && !draft && <span className="text-xs text-ink-faint">Fill the highlighted fields to continue.</span>}
         {touched && !draft && <span className="text-xs text-chili">Fix the errors above to save.</span>}
+        {saveErr && <span role="alert" className="text-xs text-chili">{saveErr}</span>}
       </div>
     </form>
   );

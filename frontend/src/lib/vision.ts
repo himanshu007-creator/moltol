@@ -1,14 +1,12 @@
 /**
- * Snap-to-add detection, with a fallback chain:
- *   1. vision model on the backend (PUBLIC_API_BASE)
- *   2. SerpAPI Google Lens via the backend (the key never reaches the browser)
- *   3. the local catalogue, which always works offline
- * A name search does the same: backend product search (SerpAPI Shopping), then the
- * local catalogue. Every result says which step produced it.
+ * Name search for the vendor's "Snap" add-item flow: a dev-only product
+ * search proxy (`scripts/local-api.mjs`, `PUBLIC_API_BASE`) with no
+ * offline/catalogue fallback — there's no real backend endpoint for this yet
+ * (see BE_MISSING_THINGS.md). The real, backend-wired piece of this flow is
+ * `backendComps()` (`lib/backend.ts`, `GET /v1/market/comps`), used
+ * alongside this for the price-range display.
  */
-import { SNAP_SUGGESTIONS, type StockDraft } from '@/lib/inventory';
-import { VEG_CATALOG } from '@/lib/vision/catalog';
-import { COMP_LIB, type ItemLib } from '@/lib/mock/seeds';
+import type { StockDraft } from '@/lib/inventory';
 
 export type Suggestion = Pick<StockDraft, 'name' | 'category' | 'emoji' | 'unit' | 'listCents' | 'compKey'>;
 export type DetectSource = 'vision' | 'serpapi-lens' | 'catalogue';
@@ -20,7 +18,7 @@ export interface Detection {
   note: string;
 }
 
-// Production: PUBLIC_API_BASE if set, else no server. Dev: same-origin /v1 (scripts/local-api.mjs).
+// Dev-only proxy. Undefined in production — searchItems() then always returns no results.
 const BASE: string | undefined = import.meta.env.PUBLIC_API_BASE ?? (import.meta.env.DEV ? '' : undefined);
 
 /** One backend call. Null when there is no backend, it fails, or it takes longer than 8 s. */
@@ -54,49 +52,11 @@ export async function toThumb(file: File, size = 160): Promise<string> {
   return canvas.toDataURL('image/jpeg', 0.75);
 }
 
-/** The offline catalogue: common shop items plus the vegetable set. */
-export function catalogueSuggestions(): Suggestion[] {
-  const veg: Suggestion[] = VEG_CATALOG.map((v) => {
-    const lib = COMP_LIB[v.key as ItemLib];
-    return {
-      name: v.en,
-      category: 'vegetable',
-      emoji: v.emoji,
-      unit: 'kg',
-      listCents: lib?.median ?? 3000,
-      compKey: lib ? v.key : undefined,
-    };
-  });
-  const seen = new Set<string>();
-  return [...SNAP_SUGGESTIONS, ...veg].filter((s) => (seen.has(s.name) ? false : (seen.add(s.name), true)));
-}
-
-/** Suggestions for a photo, through the fallback chain. */
-export async function detectItems(thumb: string): Promise<Detection> {
-  const vision = await post<{ suggestions: Suggestion[] }>('/v1/inventory/snap', { image: thumb, provider: 'vision' });
-  if (vision?.suggestions?.length) {
-    return { suggestions: vision.suggestions, source: 'vision', note: 'Recognised by the vision model.' };
-  }
-  const lens = await post<{ suggestions: Suggestion[] }>('/v1/inventory/snap', { image: thumb, provider: 'serpapi-lens' });
-  if (lens?.suggestions?.length) {
-    return { suggestions: lens.suggestions, source: 'serpapi-lens', note: 'Matched with Google Lens (SerpAPI).' };
-  }
-  await new Promise((r) => setTimeout(r, 700));
-  return {
-    suggestions: catalogueSuggestions(),
-    source: 'catalogue',
-    note: BASE
-      ? 'The server could not match this photo, so these are common items. Search by name below.'
-      : 'No server is connected. These are common items from the offline catalogue. Search by name below.',
-  };
-}
-
-/** Name search: backend product search (SerpAPI Shopping) first, then the offline catalogue. */
+/** Name search via the dev-only proxy; empty (not a fake catalogue) when there's no server. */
 export async function searchItems(query: string): Promise<{ results: Suggestion[]; source: 'serpapi-shopping' | 'catalogue' }> {
   const q = query.trim();
   if (!q) return { results: [], source: 'catalogue' };
   const remote = await post<{ results: Suggestion[] }>('/v1/search/products', { q });
   if (remote?.results?.length) return { results: remote.results, source: 'serpapi-shopping' };
-  const term = q.toLowerCase();
-  return { results: catalogueSuggestions().filter((s) => s.name.toLowerCase().includes(term)), source: 'catalogue' };
+  return { results: [], source: 'catalogue' };
 }
