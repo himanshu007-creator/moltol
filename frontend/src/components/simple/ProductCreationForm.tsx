@@ -2,75 +2,82 @@ import { useState } from 'react';
 import { navigate } from 'astro:transitions/client';
 import { useSimple, type SimpleUnit } from '@/stores/simple';
 import { useSession } from '@/stores/session';
-import { s, type ItemId } from '@/lib/simple/strings';
+import { s } from '@/lib/simple/strings';
 import { speakRupaye, speak } from '@/lib/voice';
-import { vegName, type VegSpec } from '@/lib/vision/catalog';
 import { addShopItem } from '@/lib/backend';
 import { BigButton, VoiceCaption, } from './ui';
 
 const UNITS: SimpleUnit[] = ['kg', '500g', 'piece', 'bunch'];
 const UNIT_KEY: Record<SimpleUnit, string> = { kg: 'unitKg', '500g': 'unit500g', piece: 'unitPiece', bunch: 'unitBunch' };
 
+export interface ProductSuggestion {
+  name: string;
+  emoji?: string;
+  sellCents?: number;
+}
+
 export default function ProductCreationForm({
-  initialVeg,
+  initial,
   onBack,
   onDone,
 }: {
-  initialVeg: VegSpec | null;
+  initial: ProductSuggestion | null;
   onBack?: () => void;
   onDone?: () => void;
 }) {
   const language = useSimple((x) => x.language);
   const mute = useSimple((x) => x.mute);
   const addProduct = useSimple((x) => x.addProduct);
-  const setBackendId = useSimple((x) => x.setBackendId);
   const token = useSession((x) => x.token);
   const dict = s(language);
 
-  const [name, setName] = useState(initialVeg ? vegName(initialVeg, language) : '');
-  const [hindiName, setHindiName] = useState(initialVeg ? initialVeg.en : '');
-  const [price, setPrice] = useState('');
+  const [name, setName] = useState(initial?.name ?? '');
+  const [price, setPrice] = useState(initial?.sellCents ? String(initial.sellCents / 100) : '');
   const [unit, setUnit] = useState<SimpleUnit>('kg');
   const [quantity, setQuantity] = useState('1');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const sellCents = Math.max(0, Math.round(Number(price || '0') * 100));
   const valid = name.trim().length > 0 && sellCents > 0;
 
-  const save = () => {
-    if (!valid) return;
-    const id: ItemId = initialVeg ? initialVeg.id : 'cust';
+  const save = async () => {
+    if (!valid || saving) return;
+    if (!token) {
+      setError('Log in to a real shop to add items.');
+      return;
+    }
     const floorCents = Math.round((sellCents * 0.75) / 100) * 100;
-    addProduct({
-      id,
-      sellCents,
-      floorCents,
-      quantity: Math.max(0, Number(quantity || '0')),
-      unit,
-      hindiName: hindiName.trim() || undefined,
-      image: initialVeg?.image,
-      vegKey: initialVeg?.key,
-    });
-    // Local store is the source of truth for the UI; the backend write is
-    // additive and never blocks it — same fail-soft pattern already used for
-    // the live market-comps lookup elsewhere in this flow.
-    if (token) {
-      void addShopItem(token, {
+    setSaving(true);
+    setError(null);
+    try {
+      const item = await addShopItem(token, {
         name: name.trim(),
         sellCents,
         floorCents,
         quantity: Math.max(0, Number(quantity || '0')),
         unit,
-        hindiName: hindiName.trim() || undefined,
-      })
-        .then((item) => setBackendId(id, item.id))
-        .catch(() => {});
+      });
+      addProduct({
+        id: 'cust',
+        sellCents,
+        floorCents,
+        quantity: Math.max(0, Number(quantity || '0')),
+        unit,
+        hindiName: name.trim(),
+        backendItemId: item.id,
+      });
+      speakRupaye(sellCents, language, { mute });
+      speak(dict.v.scanPublish, language, { mute });
+      if (onDone) onDone();
+      // Soft nav (not location.href): a hard reload can outrun the async IndexedDB
+      // write of the product just added, and the new listing is lost on arrival.
+      else void navigate('/app/seller/simple/price');
+    } catch {
+      setError("Couldn't save this item — try again.");
+    } finally {
+      setSaving(false);
     }
-    speakRupaye(sellCents, language, { mute });
-    speak(dict.v.scanPublish, language, { mute });
-    if (onDone) onDone();
-    // Soft nav (not location.href): a hard reload can outrun the async IndexedDB
-    // write of the product just added, and the new listing is lost on arrival.
-    else void navigate('/app/seller/simple/price');
   };
 
   return (
@@ -83,14 +90,9 @@ export default function ProductCreationForm({
       <h1 className="mt-2 text-2xl font-semibold text-ink">{dict.u.formTitle}</h1>
 
       <div className="mt-4 flex items-center gap-4 surface p-5">
-        {initialVeg ? (
-          <img src={initialVeg.image} alt="" width={80} height={80} className="h-20 w-20 rounded-2xl" />
-        ) : (
-          <span className="flex h-20 w-20 items-center justify-center rounded-2xl bg-paper-3 text-4xl">📷</span>
-        )}
+        <span className="flex h-20 w-20 items-center justify-center rounded-2xl bg-paper-3 text-4xl">{initial?.emoji ?? '📷'}</span>
         <div className="flex-1">
           <p className="text-lg font-semibold text-ink">{name || dict.u.formName}</p>
-          <p className="text-sm text-ink-faint">{hindiName || '—'}</p>
         </div>
       </div>
 
@@ -101,15 +103,6 @@ export default function ProductCreationForm({
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="mt-1 w-full surface px-4 py-4 text-lg text-ink placeholder:text-ink-faint"
-        />
-      </label>
-
-      <label className="mt-3 block">
-        <span className="text-sm font-medium text-ink-faint">{dict.u.formHindi}</span>
-        <input
-          value={hindiName}
-          onChange={(e) => setHindiName(e.target.value)}
           className="mt-1 w-full surface px-4 py-4 text-lg text-ink placeholder:text-ink-faint"
         />
       </label>
@@ -152,9 +145,11 @@ export default function ProductCreationForm({
         />
       </label>
 
+      {error && <p role="alert" className="mt-3 text-sm font-medium text-chili">{error}</p>}
+
       <div className="mt-auto pt-6">
-        <BigButton onClick={save} disabled={!valid}>
-          {dict.u.publish}
+        <BigButton onClick={() => void save()} disabled={!valid || saving}>
+          {saving ? '…' : dict.u.publish}
         </BigButton>
       </div>
     </div>

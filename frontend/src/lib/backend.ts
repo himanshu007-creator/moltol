@@ -1,10 +1,8 @@
 /**
- * Thin client for the real MolTol backend (backend/apps/api), when one is
- * running. Every call is fire-and-forget safe: network errors, CORS failures,
- * or no backend at all all resolve to `null`, never throw. Nothing here
- * replaces the mock seam in `lib/mock/*` — this is additive, opt-in wiring
- * for the pieces that are honestly compatible today (see BE_MISSING_THINGS.md
- * for why the negotiation/bazaar model itself isn't wired yet).
+ * The client for the real MolTol backend (backend/apps/api) — the only data
+ * source the app runs on. `get()`/`call()` resolve to `null`/throw on a
+ * network failure or no backend configured; there is no local/seeded
+ * fallback behind any of this (see BE_MISSING_THINGS.md for current gaps).
  */
 
 const BASE = import.meta.env.PUBLIC_BACKEND_BASE as string | undefined;
@@ -228,11 +226,40 @@ export interface ShopItem {
   emoji: string | null;
   sellCents: number;
   floorCents: number;
+  /** Seller-only; never present on a public/buyer-facing item. */
+  costCents?: number | null;
+  category?: string | null;
   quantity: number | null;
+  /** Low-stock alert threshold, in `unit`; 0/unset disables the hint. */
+  lowStockAt?: number | null;
+  /**
+   * Read-only today — the backend's create/update schema has no write path
+   * for this field yet (only the owner-view output carries it). Archiving
+   * an item isn't possible via the API; see BE_MISSING_THINGS.md.
+   */
+  archived?: boolean | null;
   unit: string | null;
+  customUnit?: string | null;
+  /** Grams/millilitres per unit, for `pack`/`custom` units. */
+  packSize?: number | null;
   hindiName: string | null;
 }
-export type PublicShopItem = Omit<ShopItem, "floorCents">;
+export type PublicShopItem = Omit<ShopItem, "floorCents" | "costCents">;
+
+export interface ShopItemInput {
+  name: string;
+  emoji?: string;
+  sellCents: number;
+  floorCents: number;
+  costCents?: number;
+  category?: string;
+  quantity?: number;
+  lowStockAt?: number;
+  unit?: string;
+  customUnit?: string;
+  packSize?: number;
+  hindiName?: string;
+}
 
 export function createShop(
   token: string,
@@ -248,22 +275,14 @@ export function getMyShop(
 }
 export function addShopItem(
   token: string,
-  item: {
-    name: string;
-    emoji?: string;
-    sellCents: number;
-    floorCents: number;
-    quantity?: number;
-    unit?: string;
-    hindiName?: string;
-  },
+  item: ShopItemInput,
 ): Promise<ShopItem> {
   return authedCall("POST", "/v1/shops/me/items", token, item);
 }
 export function updateShopItem(
   token: string,
   itemId: string,
-  patch: Partial<ShopItem>,
+  patch: Partial<ShopItemInput>,
 ): Promise<ShopItem> {
   return authedCall("PATCH", `/v1/shops/me/items/${itemId}`, token, patch);
 }
@@ -503,6 +522,8 @@ export interface NearbyShop {
   status: ShopStatus;
   distanceM: number;
   itemCount: number;
+  /** Epoch ms the pin last moved — null if never shared live. */
+  locationUpdatedAt: number | null;
 }
 
 export function nearbyShops(
@@ -520,6 +541,18 @@ export function updateShopLocation(
   location: { lat: number; lng: number } | null,
 ): Promise<Shop> {
   return authedCall("PATCH", "/v1/shops/me", token, { location });
+}
+/**
+ * The dedicated continuous-push endpoint — distinct from the one-shot
+ * `updateShopLocation` above. Meant to be called every few seconds while a
+ * stall with a moving cart is open; `GET /v1/shops/nearby`'s
+ * `locationUpdatedAt` reflects how fresh the last push was.
+ */
+export function updateShopLiveLocation(
+  token: string,
+  location: { lat: number; lng: number },
+): Promise<Shop> {
+  return authedCall("PATCH", "/v1/shops/me/location", token, location);
 }
 export function setShopStatus(
   token: string,

@@ -2,17 +2,15 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { useSimple } from '@/stores/simple';
 import { useSession } from '@/stores/session';
 import { getDealsTicket, dealsStreamUrl, type DealFeedEvent } from '@/lib/backend';
-import { type Locale, s, nativeRupaye, nativeNum } from '@/lib/simple/strings';
+import { type Locale, s, nativeRupaye } from '@/lib/simple/strings';
 import { useOrders, type Order, type PaymentStatus } from '@/stores/orders';
-import { useVenue, DEMO_SLOT_ID } from '@/stores/venue';
+import { useVenue } from '@/stores/venue';
 
 /**
  * The seller's real live deal feed (`GET /v1/shops/me/deals/stream`, see ADR
  * 0007) — a shop-scoped ticket since `EventSource` can't send an auth header.
  * A ticket is good for 120s, so a dropped connection fetches a fresh one
  * before reopening rather than relying on native retry against a stale URL.
- * Kept entirely separate from `dealsLog` (the local haggle simulation), which
- * keeps working unchanged for a demo account or a seeded shop.
  */
 function useRealDealFeed(): DealFeedEvent[] {
   const token = useSession((s) => s.token);
@@ -47,7 +45,7 @@ function useRealDealFeed(): DealFeedEvent[] {
           };
         })
         .catch(() => {
-          // No real shop yet, or backend unreachable — the local simulation stands alone.
+          // No real shop yet, or backend unreachable — the feed just stays empty.
         });
     };
     connect();
@@ -62,10 +60,11 @@ function useRealDealFeed(): DealFeedEvent[] {
 }
 
 export default function SimpleDeals() {
-  const { dealsLog, todayEarningsCents, language } = useSimple();
+  const { todayEarningsCents, language } = useSimple();
   const dict = s(language);
-  const paid = useOrders((o) => o.orders).filter((o) => o.shopId === DEMO_SLOT_ID);
-  const open = useVenue((st) => st.stalls[DEMO_SLOT_ID]?.open !== false);
+  const shopId = useSession((st) => st.shopId);
+  const paid = useOrders((o) => o.orders).filter((o) => o.shopId === shopId);
+  const open = useVenue((st) => (shopId ? st.stalls[shopId]?.open !== false : true));
   const realDeals = useRealDealFeed();
 
   return (
@@ -114,25 +113,6 @@ export default function SimpleDeals() {
         </div>
       </div>
 
-      {/* live haggle deals */}
-      <div className="mt-6 grid gap-2">
-        {dealsLog.map((d) => (
-          <div key={d.ts} className="flex items-center gap-3 surface p-4">
-            <span className="text-3xl">{d.emoji}</span>
-            <div className="flex-1">
-              <p className="text-base font-semibold text-ink">{d.item}</p>
-              <p className="text-xs text-ink-faint">{timeOf(d.ts)}</p>
-            </div>
-            <span className="text-xl font-bold text-teal">+{nativeRupaye(d.cents, language)}</span>
-          </div>
-        ))}
-        {!dealsLog.length && (
-          <p className="surface p-5 text-center text-ink-faint">
-            {dict.u.haggleWaiting} · <a href="/app/seller/simple/haggle" className="text-chili underline">→ {dict.u.homeDeals}</a>
-          </p>
-        )}
-      </div>
-      <p className="mt-6 text-center text-xs text-ink-faint">{nativeNum(dealsLog.length, language)} {dict.u.homeDeals}</p>
     </div>
   );
 }

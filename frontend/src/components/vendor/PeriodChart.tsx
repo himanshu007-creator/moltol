@@ -1,6 +1,11 @@
 import { scaleBand, scaleLinear } from 'd3-scale';
-import type { Bucket } from '@/lib/ledger';
 import { formatMoney } from '@/lib/money';
+
+export interface Bucket {
+  label: string;
+  revenueCents: number;
+  profitCents: number;
+}
 
 /**
  * Revenue (light bar) with profit (solid bar) per period. D3 does the scales;

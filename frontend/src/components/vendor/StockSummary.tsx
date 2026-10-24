@@ -1,12 +1,11 @@
 import { useInventory } from '@/stores/inventory';
-import { isLow } from '@/lib/inventory';
 
 /** Live stock counts for the stall page. The full list lives on /inventory. */
 export default function StockSummary() {
   const items = useInventory((s) => s.items);
   const active = items.filter((i) => !i.archived);
-  const low = active.filter(isLow).length;
-  const out = active.filter((i) => i.qty === 0).length;
+  const low = active.filter((i) => (i.quantity ?? 0) > 0 && (i.quantity ?? 0) <= (i.lowStockAt ?? 0)).length;
+  const out = active.filter((i) => (i.quantity ?? 0) === 0).length;
   return (
     <a href="/app/seller/inventory" className="flex min-h-16 items-center justify-between gap-4 surface p-4 active:scale-[0.99]">
       <div>
