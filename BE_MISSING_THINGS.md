@@ -645,3 +645,15 @@ sponsor list per `plan.md`.
 - [ ] Voice narration (Cartesia-generated clips, `frontend/src/lib/voiceClips.ts`, `frontend/scripts/gen-voice.ts`) is entirely client-side, build-time generated audio. No backend involvement needed or expected.
 - [ ] Discovery / map (Leaflet + browser `navigator.geolocation`, `frontend/src/components/discovery/LeafletMap.tsx`, `ShopDiscovery.tsx`) runs entirely client-side against seeded shop coordinates and the browser's real GPS. The backend's eventual `GET /v1/shops/nearby?lat&lng&radius` (handoff §4) would replace the seeded coordinate list, but the map rendering and geolocation itself stay frontend-only.
 - [ ] Gamification UI — XP/badges/streaks/predictions, per `frontend/docs/BE_HANDOFF.md` §3, is explicitly called out there as *"not modelled yet"* and *"cosmetic and must never change prices."* Still true; no backend schema exists for it and none should block a demo.
+
+## Inline responses to pending backend items (2026-10-25)
+
+### Backend — pending (status update)
+- [x] **"Modern" inventory model** — **DONE:** Schema extended via `0010_modern_inventory` (`shop_items` gains `cost_cents`, `category`, `low_stock_at`, `archived`, `custom_unit`, `pack_size`; `stock_adjustments` audit table). Contracts updated (`costCents` stripped from `PublicShopItemSchema`, `floorCents` relaxed to nonnegative, `UpdateShopItemRequestSchema.archived` added). Repo/views wired. Soft-delete via `DELETE /v1/shops/me/items/:id` sets `archived: true`. `POST /v1/shops/me/items/:itemId/adjust` added with idempotency (`opId`).
+- [x] **`locationUpdatedAt` on `shopView`** — **DONE:** Added to `ShopSchema` and included in `shopView`.
+- [x] **Product-name search endpoint** — **DONE:** Added `POST /v1/search/products` for FE compatibility.
+- [x] **Channel3 fix** — **DONE:** Rewrote to `https://api.trychannel3.com/v1/search` with `x-api-key`, USD→INR conversion via `fxUsdPerInr`, added tests. Deployed and verified live.
+- [x] **Standalone negotiation convergence** — **DONE (Option A):** Engine clamps floor to 0.9× buyer ceiling.
+- [ ] **Bulk endpoint** `POST /v1/shops/me/items/bulk` — **Not implemented** (perf-only).
+- [ ] **Photo/image storage for `shop_items`** — **Not needed.** `POST /v1/inventory/snap` uses inline data URLs; no storage required. Demo works without.
+- [ ] **Ops keys** — SerpAPI/LLM/SMTP unset on live instance (fallbacks in place).
