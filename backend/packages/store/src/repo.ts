@@ -29,8 +29,8 @@ import type { Db, Sql } from "./client";
 import { decryptLimit, encryptLimit, parseSealKey } from "./seal";
 import {
   baskets,
-  negotiations,
   negotiationEvents,
+  negotiations,
   otpCodes,
   payments,
   proofs,
@@ -38,6 +38,7 @@ import {
   sealedSecrets,
   shopItems,
   shops,
+  stockAdjustments,
   users,
   webhookEvents,
 } from "./schema";
@@ -1131,14 +1132,25 @@ export class MoltolStore {
     emoji?: string;
     sellCents: number;
     floorCents: number;
-    quantity?: number;
-    unit?: string;
-    hindiName?: string;
+    costCents?: number | null;
+    category?: string | null;
+    lowStockAt?: number | null;
+    quantity?: number | null;
+    unit?: string | null;
+    customUnit?: string | null;
+    packSize?: number | null;
+    hindiName?: string | null;
+    archived?: boolean;
   }) {
-    const { quantity, ...rest } = input;
+    const { quantity, lowStockAt, packSize, ...rest } = input;
     const rows = await this.db
       .insert(shopItems)
-      .values({ ...rest, ...(quantity !== undefined ? { quantity: String(quantity) } : {}) })
+      .values({
+        ...rest,
+        ...(quantity !== undefined && quantity !== null ? { quantity: String(quantity) } : {}),
+        ...(lowStockAt !== undefined && lowStockAt !== null ? { lowStockAt: String(lowStockAt) } : {}),
+        ...(packSize !== undefined ? { packSize: packSize === null ? null : String(packSize) } : {}),
+      })
       .returning();
     return toShopItemRow(rows[0]!);
   }
@@ -1170,18 +1182,30 @@ export class MoltolStore {
       emoji: string | null;
       sellCents: number;
       floorCents: number;
+      costCents: number | null;
+      category: string | null;
+      lowStockAt: number | null;
       quantity: number | null;
       unit: string | null;
+      customUnit: string | null;
+      packSize: number | null;
       hindiName: string | null;
+      archived: boolean;
     }>,
   ) {
-    const { quantity, ...rest } = patch;
+    const { quantity, lowStockAt, packSize, ...rest } = patch;
     const rows = await this.db
       .update(shopItems)
       .set({
         ...rest,
         ...(quantity !== undefined
           ? { quantity: quantity === null ? null : String(quantity) }
+          : {}),
+        ...(lowStockAt !== undefined
+          ? { lowStockAt: lowStockAt === null ? "0" : String(lowStockAt) }
+          : {}),
+        ...(packSize !== undefined
+          ? { packSize: packSize === null ? null : String(packSize) }
           : {}),
         updatedAt: new Date(),
       })
@@ -1190,12 +1214,54 @@ export class MoltolStore {
     return rows[0] ? toShopItemRow(rows[0]) : null;
   }
 
-  async deleteShopItem(id: string): Promise<boolean> {
+  async deleteShopItem(id: string) {
     const rows = await this.db
-      .delete(shopItems)
+      .update(shopItems)
+      .set({ archived: true, updatedAt: new Date() })
       .where(eq(shopItems.id, id))
-      .returning({ id: shopItems.id });
-    return rows.length > 0;
+      .returning();
+    return rows[0] ? toShopItemRow(rows[0]) : null;
+  }
+
+  async adjustShopItemStock(
+    shopId: string,
+    itemId: string,
+    delta: number,
+    reason: string | undefined,
+    opId: string | undefined,
+  ): Promise<ShopItemRow | "conflict" | null> {
+    return this.db.transaction(async (tx) => {
+      const existing = await tx.select().from(shopItems).where(eq(shopItems.id, itemId)).limit(1);
+      if (existing.length === 0) return null;
+      const row = existing[0]!;
+      if (row.shopId !== shopId) return null;
+      if (opId) {
+        const dup = await tx
+          .select({ id: stockAdjustments.id })
+          .from(stockAdjustments)
+          .where(and(eq(stockAdjustments.shopItemId, itemId), eq(stockAdjustments.opId, opId)))
+          .limit(1);
+        if (dup.length > 0) return "conflict";
+      }
+      const current = row.quantity === null ? null : Number(row.quantity);
+      const next = current === null ? String(delta) : String(current + delta);
+      const updated = await tx
+        .update(shopItems)
+        .set({ quantity: next, updatedAt: new Date() })
+        .where(eq(shopItems.id, itemId))
+        .returning();
+      try {
+        await tx.insert(stockAdjustments).values({
+          shopItemId: itemId,
+          delta: String(delta),
+          reason: reason ?? null,
+          opId: opId ?? null,
+        });
+      } catch {
+        // ignore duplicate inserts on retry
+      }
+      return toShopItemRow(updated[0]!);
+    });
   }
 
   /* -------------------------------- sweeper -------------------------------- */

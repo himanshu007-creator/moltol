@@ -84,6 +84,7 @@ frontend still runs on its mocks** — wiring `stores/bazaar.ts`, `PayFlow.tsx`,
 "Backend pass, 2026-10-16" below for the exact contract, what is deliberately
 not done, and why.
 
+<<<<<<< HEAD
 ## Current pending work (2026-10-24) — what's actually left, FE or BE
 
 Everything below this line in the rest of the doc is the historical log (how
@@ -657,3 +658,6 @@ sponsor list per `plan.md`.
 - [ ] **Bulk endpoint** `POST /v1/shops/me/items/bulk` — **Not implemented** (perf-only).
 - [ ] **Photo/image storage for `shop_items`** — **Not needed.** `POST /v1/inventory/snap` uses inline data URLs; no storage required. Demo works without.
 - [ ] **Ops keys** — SerpAPI/LLM/SMTP unset on live instance (fallbacks in place).
+=======
+**Update, 2026-10-25:** Inventory model extended (migration `0010_modern_inventory`), soft-delete/archive support, stock adjustments with audit trail, `locationUpdatedAt` on shops, `POST /v1/shops/me/items/:id/adjust` endpoint added. Channel3 API fixed to use `api.trychannel3.com` with correct auth. `POST /v1/search/products` added for FE compatibility. Standalone negotiation now always converges (Option A) — engine clamps floor for standalone demo. Demo works without photo storage (snap uses inline data URLs).
+>>>>>>> 9a31c6f (feat: modern inventory + archive/adjust + product search + Channel3 fix)

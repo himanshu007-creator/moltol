@@ -72,6 +72,8 @@ export const ShopSchema = z.object({
   currency: z.string(),
   location: LocationSchema.nullable(),
   status: ShopStatusSchema,
+  /** Epoch ms the pin last moved; how fresh a "live" vendor location is. */
+  locationUpdatedAt: z.number().int().nullable().optional(),
 });
 export type Shop = z.infer<typeof ShopSchema>;
 
@@ -124,7 +126,10 @@ export const CreateShopItemRequestSchema = z.object({
 });
 export type CreateShopItemRequest = z.infer<typeof CreateShopItemRequestSchema>;
 
-export const UpdateShopItemRequestSchema = CreateShopItemRequestSchema.partial();
+export const UpdateShopItemRequestSchema = CreateShopItemRequestSchema.partial().extend({
+  /** Soft delete: archived items are hidden from the public store. */
+  archived: z.boolean().optional(),
+});
 export type UpdateShopItemRequest = z.infer<typeof UpdateShopItemRequestSchema>;
 
 /** Owner view — includes `floorCents` and `costCents`. Never sent to a buyer. */
