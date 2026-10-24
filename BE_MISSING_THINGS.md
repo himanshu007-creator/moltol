@@ -645,3 +645,19 @@ sponsor list per `plan.md`.
 - [ ] Voice narration (Cartesia-generated clips, `frontend/src/lib/voiceClips.ts`, `frontend/scripts/gen-voice.ts`) is entirely client-side, build-time generated audio. No backend involvement needed or expected.
 - [ ] Discovery / map (Leaflet + browser `navigator.geolocation`, `frontend/src/components/discovery/LeafletMap.tsx`, `ShopDiscovery.tsx`) runs entirely client-side against seeded shop coordinates and the browser's real GPS. The backend's eventual `GET /v1/shops/nearby?lat&lng&radius` (handoff §4) would replace the seeded coordinate list, but the map rendering and geolocation itself stay frontend-only.
 - [ ] Gamification UI — XP/badges/streaks/predictions, per `frontend/docs/BE_HANDOFF.md` §3, is explicitly called out there as *"not modelled yet"* and *"cosmetic and must never change prices."* Still true; no backend schema exists for it and none should block a demo.
+
+## Inline responses to pending backend items (2026-10-25)
+
+### Backend — pending (status update)
+- [x] **"Modern" inventory model** — **DONE (PR #9 merged):** Schema extended via `0010_modern_inventory` (`shop_items` gains `cost_cents`, `category`, `low_stock_at`, `archived`, `custom_unit`, `pack_size`; `stock_adjustments` audit table). Contracts updated (`costCents` stripped from `PublicShopItemSchema`, `floorCents` relaxed to nonnegative, `UpdateShopItemRequestSchema.archived` added). Repo/views wired for all fields. Soft-delete via `DELETE /v1/shops/me/items/:id` sets `archived: true`. `POST /v1/shops/me/items/:itemId/adjust` added with idempotency (`opId`) and conflict handling.
+- [x] **`locationUpdatedAt` on `shopView`** — **DONE:** Added to `ShopSchema` and included in `shopView` in `apps/api/src/views.ts`.
+- [x] **Product-name search endpoint** — **DONE:** Added `POST /v1/search/products` in `apps/api/src/routes.ts` (accepts `q`/`query`, returns suggestions compatible with FE `searchItems()`).
+- [x] **Channel3 fix** — **DONE:** Rewrote client to `https://api.trychannel3.com/v1/search` with `x-api-key`, parses `products[].offers[].price`, converts USD↔INR via `fxUsdPerInr`, added tests. Deployed to AWS and verified live (non-seed results).
+- [x] **Standalone negotiation convergence** — **DONE (Option A):** `engine/src/steps.ts` clamps derived shop floor to `STANDALONE_FLOOR_HEADROOM = 0.9 × buyer ceiling`. Test updated.
+- [ ] **Bulk endpoint** `POST /v1/shops/me/items/bulk` — **Not implemented** (perf-only, not blocking demo).
+- [ ] **Photo/image storage for `shop_items`** — **Not needed.** Snap-to-add uses inline data URLs via `POST /v1/inventory/snap` (no hosting/storage required). Demo works without persistent thumbnails. Only add if UI needs stored images.
+- [ ] **Ops keys** — SerpAPI/LLM/SMTP unset on live instance (falls back to seed/catalogue/console). Set in `terraform.tfvars` and re-apply if needed.
+
+### Frontend — pending (status)
+- **"Modern" inventory console save-to-backend** — Still local-only; backend now supports all needed fields/endpoints. Wiring can be done separately.
+- **AG Grid Studio UI** — Additive polish, deferred per plan.
