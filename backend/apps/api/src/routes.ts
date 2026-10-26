@@ -262,4 +262,24 @@ export async function registerCoreRoutes(app: FastifyInstance, deps: RouteDeps):
       return market.getComps(query, currency);
     },
   );
+
+  app.post<{ Body: { q?: string; query?: string } }>("/v1/search/products", async (req, reply) => {
+    const query = String(req.body?.q ?? req.body?.query ?? "")
+      .slice(0, 200)
+      .trim();
+    if (!query) return reply.send({ results: [] });
+    const range = await market.getComps(query, "INR");
+    return reply.send({
+      results: [
+        {
+          name: query,
+          category: "general",
+          emoji: "🛒",
+          unit: "piece",
+          listCents: range.medianCents,
+          compKey: query.toLowerCase().replace(/\s+/g, "-"),
+        },
+      ],
+    });
+  });
 }
