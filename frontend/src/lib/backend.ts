@@ -218,6 +218,8 @@ export interface Shop {
   currency?: string;
   location?: { lat: number; lng: number } | null;
   status?: ShopStatus;
+  /** Epoch ms the pin last moved; now on every shop view, not just the nearby list. */
+  locationUpdatedAt?: number | null;
 }
 export interface ShopItem {
   id: string;
@@ -232,11 +234,7 @@ export interface ShopItem {
   quantity: number | null;
   /** Low-stock alert threshold, in `unit`; 0/unset disables the hint. */
   lowStockAt?: number | null;
-  /**
-   * Read-only today — the backend's create/update schema has no write path
-   * for this field yet (only the owner-view output carries it). Archiving
-   * an item isn't possible via the API; see BE_MISSING_THINGS.md.
-   */
+  /** Soft delete — write via `updateShopItem(token, id, { archived })`. */
   archived?: boolean | null;
   unit: string | null;
   customUnit?: string | null;
@@ -259,6 +257,8 @@ export interface ShopItemInput {
   customUnit?: string;
   packSize?: number;
   hindiName?: string;
+  /** Patch-only in practice — soft delete / restore. */
+  archived?: boolean;
 }
 
 export function createShop(
@@ -288,6 +288,20 @@ export function updateShopItem(
 }
 export function deleteShopItem(token: string, itemId: string): Promise<void> {
   return authedCall("DELETE", `/v1/shops/me/items/${itemId}`, token);
+}
+/** +/- stock with an audit trail; `opId` makes a retried call a no-op instead of double-adjusting. */
+export function adjustShopItemStock(
+  token: string,
+  itemId: string,
+  delta: number,
+  reason?: string,
+  opId?: string,
+): Promise<ShopItem> {
+  return authedCall("POST", `/v1/shops/me/items/${itemId}/adjust`, token, {
+    delta,
+    reason,
+    opId,
+  });
 }
 export function getPublicShop(
   shopId: string,

@@ -9,6 +9,7 @@ import {
   checkoutBasket,
   captureBasket,
   retryBasketCheckout,
+  getBasket,
   getOrder,
   BackendAuthError,
   type BasketCheckoutResult,
@@ -89,6 +90,27 @@ export default function PayFlow() {
       setStage("ready");
     }
   };
+
+  // The PayPal webhook can capture the order server-side before the buyer
+  // clicks "I've approved it" (or even if the redirect back here never
+  // happens at all, e.g. a misconfigured return URL) — poll the basket while
+  // waiting on approval so the UI advances on its own either way.
+  // captureBasket() is idempotent, so calling it again here is harmless.
+  useEffect(() => {
+    if (!approveUrl || realStep === "captured") return;
+    const basketId = bz.basketId;
+    const token = session.token;
+    if (!basketId || !token) return;
+    const t = setInterval(() => {
+      getBasket(token, basketId)
+        .then((b) => {
+          if (b.state === "paid") void finishCapture(token, basketId);
+        })
+        .catch(() => {});
+    }, 3000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [approveUrl, realStep, bz.basketId, session.token]);
 
   const pay = async () => {
     setPayError(null);

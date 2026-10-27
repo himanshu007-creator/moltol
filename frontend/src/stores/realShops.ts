@@ -158,6 +158,7 @@ export function useDirectShopFallback(stallId: string, foundInList: boolean): Sh
           distanceM: 0,
           persona: (full.persona as Shop['persona']) || 'analyst',
           products: full.items.map(mapPublicItem),
+          locationUpdatedAt: full.locationUpdatedAt,
         });
       })
       .catch(() => {});
