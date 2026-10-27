@@ -12,6 +12,8 @@ const EnvSchema = z.object({
   REDIS_URL: z.string().default("redis://localhost:6379"),
   CORS_ORIGIN: z.string().default("*"),
   PUBLIC_BASE_URL: z.string().default("http://localhost:3000"),
+  /** Where the browser's PayPal return/cancel redirect lands — the frontend origin. */
+  FRONTEND_BASE_URL: z.string().default("http://localhost:4321"),
   /**
    * Which peers may set X-Forwarded-For (the client IP rate limits key on), as
    * proxy-addr names/subnets. The default trusts private networks — Caddy on the

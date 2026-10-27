@@ -7,13 +7,15 @@ import type { Shop } from '@/lib/types';
  * proximity prompt. There is no fallback "bazaar centre" — real shops can be
  * anywhere, so a position is either a real GPS fix or nothing yet.
  */
-export type PosSource = 'locating' | 'gps' | 'denied';
+export type PosSource = 'locating' | 'gps' | 'denied' | 'manual';
 
 interface YouState {
   point: GeoPoint | null;
   source: PosSource;
   setGps: (p: GeoPoint) => void;
   setDenied: () => void;
+  /** A buyer-chosen point (typed place search) — used when GPS is denied, slow, or wrong. */
+  setManual: (p: GeoPoint) => void;
 }
 
 /** a stall counts as "you are entering" inside this radius */
@@ -25,6 +27,7 @@ export const useYou = create<YouState>()((set) => ({
 
   setGps: (point) => set({ point, source: 'gps' }),
   setDenied: () => set({ source: 'denied' }),
+  setManual: (point) => set({ point, source: 'manual' }),
 }));
 
 /** Metres from a point to every shop in the list. */

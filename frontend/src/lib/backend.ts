@@ -279,6 +279,13 @@ export function addShopItem(
 ): Promise<ShopItem> {
   return authedCall("POST", "/v1/shops/me/items", token, item);
 }
+/** One round trip for CSV/bulk import instead of N sequential creates. All-or-nothing. */
+export function bulkAddShopItems(
+  token: string,
+  items: ShopItemInput[],
+): Promise<ShopItem[]> {
+  return authedCall("POST", "/v1/shops/me/items/bulk", token, { items });
+}
 export function updateShopItem(
   token: string,
   itemId: string,
