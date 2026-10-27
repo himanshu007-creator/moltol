@@ -4,6 +4,7 @@ import {
   getMyShop,
   addShopItem,
   updateShopItem,
+  adjustShopItemStock,
   type ShopItem,
   type ShopItemInput,
 } from '@/lib/backend';
@@ -31,6 +32,8 @@ interface InventoryState {
   /** bulk list-price change, in percent (e.g. 5 or -5). Never drops a list price below its floor. */
   bulkListPct: (token: string, ids: string[], pct: number) => Promise<void>;
   importMany: (token: string, drafts: ShopItemInput[]) => Promise<number>;
+  /** Soft delete / restore — real write path now that the backend accepts `archived` on PATCH. */
+  setArchived: (token: string, ids: string[], archived: boolean) => Promise<void>;
   reset: () => void;
 }
 
@@ -62,10 +65,9 @@ export const useInventory = create<InventoryState>()((set, get) => ({
   },
 
   adjust: async (token, id, delta, reason) => {
-    const cur = get().items.find((i) => i.id === id);
-    if (!cur) return;
-    const quantity = Math.max(0, (cur.quantity ?? 0) + delta);
-    await get().update(token, id, { quantity });
+    const opId = crypto.randomUUID();
+    const row = await adjustShopItemStock(token, id, delta, reason, opId);
+    set({ items: get().items.map((i) => (i.id === id ? row : i)) });
     set({ log: [{ id: `${id}-${Date.now()}`, sku: id, delta, reason, at: Date.now() }, ...get().log].slice(0, 200) });
   },
 
@@ -75,6 +77,12 @@ export const useInventory = create<InventoryState>()((set, get) => ({
       if (!cur) continue;
       const sellCents = Math.max(cur.floorCents, Math.round((cur.sellCents * (100 + pct)) / 100));
       await get().update(token, id, { sellCents });
+    }
+  },
+
+  setArchived: async (token, ids, archived) => {
+    for (const id of ids) {
+      await get().update(token, id, { archived });
     }
   },
 

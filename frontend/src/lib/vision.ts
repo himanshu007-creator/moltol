@@ -1,10 +1,9 @@
 /**
- * Name search for the vendor's "Snap" add-item flow: a dev-only product
- * search proxy (`scripts/local-api.mjs`, `PUBLIC_API_BASE`) with no
- * offline/catalogue fallback — there's no real backend endpoint for this yet
- * (see BE_MISSING_THINGS.md). The real, backend-wired piece of this flow is
- * `backendComps()` (`lib/backend.ts`, `GET /v1/market/comps`), used
- * alongside this for the price-range display.
+ * Name search for the vendor's "Snap" add-item flow, now wired to the real
+ * `POST /v1/search/products` on the real backend (`lib/backend.ts`'s
+ * `PUBLIC_BACKEND_BASE`) — no offline/catalogue fallback. Used alongside
+ * `backendComps()` (`lib/backend.ts`, `GET /v1/market/comps`) for the
+ * price-range display.
  */
 import type { StockDraft } from '@/lib/inventory';
 
@@ -18,12 +17,11 @@ export interface Detection {
   note: string;
 }
 
-// Dev-only proxy. Undefined in production — searchItems() then always returns no results.
-const BASE: string | undefined = import.meta.env.PUBLIC_API_BASE ?? (import.meta.env.DEV ? '' : undefined);
+const BASE: string | undefined = import.meta.env.PUBLIC_BACKEND_BASE as string | undefined;
 
 /** One backend call. Null when there is no backend, it fails, or it takes longer than 8 s. */
 async function post<T>(path: string, body: unknown): Promise<T | null> {
-  if (BASE === undefined) return null;
+  if (!BASE) return null;
   try {
     const res = await fetch(`${BASE}${path}`, {
       method: 'POST',
@@ -52,11 +50,11 @@ export async function toThumb(file: File, size = 160): Promise<string> {
   return canvas.toDataURL('image/jpeg', 0.75);
 }
 
-/** Name search via the dev-only proxy; empty (not a fake catalogue) when there's no server. */
-export async function searchItems(query: string): Promise<{ results: Suggestion[]; source: 'serpapi-shopping' | 'catalogue' }> {
+/** Name search via the real backend; empty (not a fake catalogue) when it has nothing or there's no server. */
+export async function searchItems(query: string): Promise<{ results: Suggestion[]; source: 'backend' | 'catalogue' }> {
   const q = query.trim();
   if (!q) return { results: [], source: 'catalogue' };
   const remote = await post<{ results: Suggestion[] }>('/v1/search/products', { q });
-  if (remote?.results?.length) return { results: remote.results, source: 'serpapi-shopping' };
+  if (remote?.results?.length) return { results: remote.results, source: 'backend' };
   return { results: [], source: 'catalogue' };
 }
