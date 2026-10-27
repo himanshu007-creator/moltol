@@ -394,7 +394,7 @@ const SOURCE_LABEL = {
   vision: "Vision model",
   "serpapi-lens": "Google Lens (SerpAPI)",
   catalogue: "Offline catalogue",
-  "serpapi-shopping": "Shopping search (SerpAPI)",
+  backend: "Live backend search",
 } as const;
 
 /** The real, authenticated snap endpoint (`POST /v1/inventory/snap`) — no local/offline fallback. */

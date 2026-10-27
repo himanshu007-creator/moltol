@@ -43,6 +43,7 @@ export default function InventoryManager() {
   const fetchItems = useInventory((s) => s.fetch);
   const adjust = useInventory((s) => s.adjust);
   const bulkListPct = useInventory((s) => s.bulkListPct);
+  const setArchived = useInventory((s) => s.setArchived);
   const token = useSession((s) => s.token);
 
   const [tab, setTab] = useState<Tab>('stock');
@@ -176,9 +177,11 @@ export default function InventoryManager() {
               </button>
               <button
                 type="button"
-                disabled
-                title="Archiving isn't available yet — the backend has no write path for it."
-                className="min-h-11 rounded-xl bg-paper/15 px-3 text-sm opacity-50"
+                onClick={() => {
+                  if (!token) return;
+                  void setArchived(token, picked, filter !== 'archived').then(() => setPicked([]));
+                }}
+                className="min-h-11 rounded-xl bg-paper/15 px-3 text-sm"
               >
                 {filter === 'archived' ? 'Restore' : 'Archive'}
               </button>
