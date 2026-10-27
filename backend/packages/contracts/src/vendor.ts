@@ -132,6 +132,12 @@ export const UpdateShopItemRequestSchema = CreateShopItemRequestSchema.partial()
 });
 export type UpdateShopItemRequest = z.infer<typeof UpdateShopItemRequestSchema>;
 
+/** CSV/bulk import — one call instead of N sequential creates. */
+export const BulkCreateShopItemsRequestSchema = z.object({
+  items: z.array(CreateShopItemRequestSchema).min(1).max(200),
+});
+export type BulkCreateShopItemsRequest = z.infer<typeof BulkCreateShopItemsRequestSchema>;
+
 /** Owner view — includes `floorCents` and `costCents`. Never sent to a buyer. */
 export const ShopItemSchema = z.object({
   id: z.string().uuid(),

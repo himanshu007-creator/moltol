@@ -272,27 +272,34 @@ html[data-auth='1'] [data-app-chrome] {
     font-weight: 650;
     font-size: 1rem;
     letter-spacing: -0.005em;
-    transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+    transition: transform 140ms ease, box-shadow 140ms ease, background-color 140ms ease, filter 140ms ease, border-color 140ms ease;
     user-select: none;
     white-space: nowrap;
   }
-  .btn:active:not(:disabled) { transform: scale(0.98); }
+  /* feedback on press via shadow/brightness, not a layout-shifting scale —
+     the one exception is the tiny active-state press below, which never
+     changes the button's footprint, only how "pressed" it reads */
+  .btn:hover:not(:disabled) { filter: brightness(1.05); }
+  .btn:active:not(:disabled) { transform: scale(0.98); filter: brightness(0.97); }
   .btn:disabled { opacity: 0.45; cursor: not-allowed; }
   .btn-primary {
     color: #23180a;
     background: linear-gradient(180deg, #ffc233 0%, #f2a900 100%);
     box-shadow: 0 14px 28px -16px rgb(242 169 0 / 0.95), inset 0 1px 0 rgb(255 255 255 / 0.5);
   }
+  .btn-primary:hover:not(:disabled) { box-shadow: 0 18px 34px -16px rgb(242 169 0 / 1), inset 0 1px 0 rgb(255 255 255 / 0.6); }
   .btn-chili {
     color: #fff;
     background: linear-gradient(180deg, #d92c44 0%, #b81c2f 100%);
     box-shadow: 0 14px 28px -16px rgb(192 31 51 / 0.9);
   }
+  .btn-chili:hover:not(:disabled) { box-shadow: 0 18px 34px -16px rgb(192 31 51 / 1); }
   .btn-teal {
     color: #fff;
     background: var(--color-teal);
     box-shadow: 0 14px 28px -16px rgb(10 106 105 / 0.9);
   }
+  .btn-teal:hover:not(:disabled) { box-shadow: 0 18px 34px -16px rgb(10 106 105 / 1); }
   .btn-ink {
     color: #FFFDF8;
     background: #14110C;
@@ -302,6 +309,7 @@ html[data-auth='1'] [data-app-chrome] {
     background: color-mix(in oklab, var(--color-paper-3) 90%, transparent);
     border: 1px solid var(--color-chalk);
   }
+  .btn-quiet:hover:not(:disabled) { background: var(--color-paper-3); border-color: var(--color-chalk-strong); filter: none; }
   .btn-link {
     min-height: 2.75rem;
     padding: 0 0.5rem;
@@ -309,21 +317,6 @@ html[data-auth='1'] [data-app-chrome] {
     text-decoration: underline;
     text-underline-offset: 3px;
   }
-  /* theme-independent — for CTAs sitting on a .glow-stage, which stays dark
-     regardless of data-theme, so the usual theme-aware btn-* classes won't do */
-  .btn-glow {
-    color: #23180a;
-    background: linear-gradient(180deg, var(--glow-marigold) 0%, #f2a900 100%);
-    box-shadow: 0 14px 28px -16px color-mix(in oklab, var(--glow-marigold) 80%, transparent);
-  }
-  .btn-glow:hover { box-shadow: 0 0 24px 2px color-mix(in oklab, var(--glow-marigold) 70%, transparent); }
-  .btn-glow-outline {
-    color: var(--glow-ink);
-    background: color-mix(in oklab, var(--glow-ink) 8%, transparent);
-    border: 1px solid color-mix(in oklab, var(--glow-ink) 25%, transparent);
-  }
-  .btn-glow-outline:hover { border-color: color-mix(in oklab, var(--glow-ink) 50%, transparent); }
-
   /* chips / pills */
   .pill {
     display: inline-flex;
@@ -605,32 +598,47 @@ html[data-theme='dark'] .leaflet-moltol:not([data-satellite]) .leaflet-tile-pane
   .glow-pulse-svg { animation: none; filter: drop-shadow(0 0 3px currentColor) drop-shadow(0 0 6px currentColor); }
 }
 
-/* landing hero: a few lanterns that breathe through their own settle cycle —
-   the exact same visual language as the real overview panel's LanternOrb,
-   just a static CSS loop since there's no real negotiation to read from yet. */
-@keyframes landing-orb-glow {
-  0%, 55% { box-shadow: 0 0 3px 1px color-mix(in oklab, currentColor 45%, transparent); }
-  85%, 100% { box-shadow: 0 0 22px 7px color-mix(in oklab, currentColor 90%, transparent); }
-}
-.landing-orb { animation: landing-orb-glow 5s ease-in-out infinite alternate; }
-@media (prefers-reduced-motion: reduce) {
-  .landing-orb { animation: none; box-shadow: 0 0 14px 4px color-mix(in oklab, currentColor 75%, transparent); }
-}
+/* ============================================================================
+   Bazaar motifs — mural wall, marigold garland, painted-truck frame. Built
+   from the existing palette only (color-mix against --color-*), so light and
+   dark both work with no separate overrides. A bolder companion to
+   .bg-rangoli (which stays the fixed full-page texture) for section
+   backgrounds that want more presence.
+   ========================================================================= */
+@layer utilities {
+  .bg-mural {
+    background-color: var(--color-paper-3);
+    background-image:
+      repeating-linear-gradient(115deg, color-mix(in oklab, var(--color-chili) 7%, transparent) 0 18px, transparent 18px 46px),
+      repeating-linear-gradient(25deg, color-mix(in oklab, var(--color-teal) 6%, transparent) 0 14px, transparent 14px 54px),
+      repeating-linear-gradient(0deg, color-mix(in oklab, var(--color-marigold) 8%, transparent) 0 10px, transparent 10px 64px);
+  }
 
-/* the landing "two doors" portal cards */
-.glow-portal {
-  box-shadow: 0 0 0 0 transparent;
-  transition: box-shadow 200ms ease, transform 200ms ease;
+  /* a marigold garland strung across a section break */
+  .garland-divider {
+    height: 1.25rem;
+    position: relative;
+    background-image:
+      radial-gradient(circle at center, var(--color-marigold) 0 3px, transparent 3.5px),
+      radial-gradient(circle at center, var(--color-chili) 0 3px, transparent 3.5px);
+    background-size: 28px 100%, 28px 100%;
+    background-position: 0 55%, 14px 55%;
+    background-repeat: repeat-x;
+    animation: garland-sway 6s ease-in-out infinite;
+  }
+  .garland-divider::before {
+    content: "";
+    position: absolute;
+    inset: 50% 0 auto 0;
+    height: 1px;
+    background: color-mix(in oklab, var(--color-chalk-strong) 55%, transparent);
+  }
+
 }
-.glow-portal:hover,
-.glow-portal:focus-visible {
-  transform: translateY(-2px);
+@keyframes garland-sway {
+  0%, 100% { background-position: 0 55%, 14px 55%; }
+  50% { background-position: 0 62%, 14px 48%; }
 }
-.glow-portal-marigold:hover,
-.glow-portal-marigold:focus-visible {
-  box-shadow: 0 0 32px 2px color-mix(in oklab, var(--glow-marigold) 35%, transparent);
-}
-.glow-portal-indigo:hover,
-.glow-portal-indigo:focus-visible {
-  box-shadow: 0 0 32px 2px color-mix(in oklab, var(--glow-indigo) 35%, transparent);
+@media (prefers-reduced-motion: reduce) {
+  .garland-divider { animation: none; }
 }

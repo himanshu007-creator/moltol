@@ -1,8 +1,8 @@
 import TickPrice from '@/components/motion/TickPrice';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useBazaar, selectBazaar, type LaneSummary, type BazaarState } from '@/stores/bazaar';
-import { selectSeries } from '@/lib/negotiation';
+import { selectSeries, type TurnEntry } from '@/lib/negotiation';
 import { HaggleChart } from '@/components/theatre/HaggleChart';
 import { OverviewTugOfWar } from '@/components/theatre/OverviewTugOfWar';
 import { formatMoney } from '@/lib/money';
@@ -47,7 +47,7 @@ export default function BazaarTheatre() {
   return (
     <div className="grid gap-6 pb-48 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:items-start">
       <div>
-        <div className="flex items-center justify-between">
+        <div className="bg-mural flex items-center justify-between rounded-2xl px-4 py-3">
           <h1 className="text-xl font-display font-extrabold text-ink">Live bazaar</h1>
           <span className="rounded-full bg-chili/10 px-3 py-1 text-xs font-bold text-chili">
             {bz.style} · {sum.totalDone} lanes
@@ -206,24 +206,7 @@ function LaneCard({ l, bz, chat, setChat, chartOpen, setChartOpen }: LaneCardPro
       </AnimatePresence>
 
       <AnimatePresence>
-        {chat === l.sku && (
-          <motion.ul
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="mt-2 space-y-1 overflow-hidden rounded-2xl bg-paper-3 px-3 py-2 text-xs text-ink-muted"
-          >
-            {l.turns.slice(-5).map((t, i) => (
-              <li key={i} className={t.actor === 'buyer' ? 'text-right' : ''}>
-                <b className={t.actor === 'buyer' ? 'text-ink' : 'text-chili'}>
-                  {t.actor === 'buyer' ? 'you' : 'shop'}
-                </b>{' '}
-                {t.priceCents != null && <span className="tabular-nums">{formatMoney(t.priceCents)}</span>} — {t.message}
-                {i === l.turns.length - 1 && <LiveDot />}
-              </li>
-            ))}
-          </motion.ul>
-        )}
+        {chat === l.sku && <ChatTranscript turns={l.turns} />}
       </AnimatePresence>
 
       {!l.done && !l.controlled && (
@@ -285,6 +268,62 @@ function LaneCardGhost({ l }: { l: LaneSummary }) {
         <Chip ok={agree} noDeal={l.noDeal} running={l.running} controlled={false} />
       </div>
     </div>
+  );
+}
+
+/**
+ * The haggle as a real chat: you on the right, the shop on the left, one
+ * bubble per turn. Replaces the old packed right/left-aligned text block —
+ * reads like a messaging app at any width, down to a narrow phone.
+ */
+function ChatTranscript({ turns }: { turns: TurnEntry[] }) {
+  const endRef = useRef<HTMLDivElement>(null);
+  const shown = turns.slice(-10);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }, [turns.length]);
+
+  return (
+    <motion.div
+      initial={{ height: 0, opacity: 0 }}
+      animate={{ height: 'auto', opacity: 1 }}
+      exit={{ height: 0, opacity: 0 }}
+      className="mt-3 overflow-hidden"
+    >
+      <ol
+        className="flex max-h-72 flex-col gap-1.5 overflow-y-auto rounded-2xl bg-paper-3/60 p-3"
+        aria-live="polite"
+        aria-relevant="additions"
+        aria-label="Haggle chat"
+      >
+        {shown.map((t, i) => {
+          const mine = t.actor === 'buyer';
+          const last = i === shown.length - 1;
+          return (
+            <li key={i} className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
+              <div
+                className={cn(
+                  'max-w-[85%] rounded-2xl px-3 py-2 sm:max-w-[75%]',
+                  mine ? 'rounded-br-md bg-ink text-paper' : 'rounded-bl-md border border-chalk bg-paper-2 text-ink',
+                )}
+              >
+                {t.priceCents != null && (
+                  <p className={cn('t-num text-sm font-bold', mine ? 'text-paper' : 'text-chili')}>
+                    {formatMoney(t.priceCents)}
+                  </p>
+                )}
+                <p className={cn('text-sm leading-snug', mine ? 'text-paper/85' : 'text-ink-muted')}>
+                  {t.message}
+                  {last && <LiveDot />}
+                </p>
+              </div>
+            </li>
+          );
+        })}
+        <div ref={endRef} />
+      </ol>
+    </motion.div>
   );
 }
 

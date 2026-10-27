@@ -61,6 +61,22 @@ export async function registerCoreRoutes(app: FastifyInstance, deps: RouteDeps):
     paypal: checkout.captures ? "real" : "mock",
   }));
 
+  /**
+   * PayPal's own return/cancel targets (set as `application_context.return_url`/
+   * `cancel_url` on the order, see `container.ts`'s `createCheckout`) — the
+   * browser lands here on the API's own origin, we just forward it (and the
+   * `token`/`PayerID` querystring PayPal appends) on to the frontend, which
+   * already polls `getBasket()` for a webhook-captured payment.
+   */
+  app.get("/return", async (req, reply) => {
+    const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+    return reply.redirect(`${env.FRONTEND_BASE_URL}/app/checkout${qs}`);
+  });
+  app.get("/cancel", async (req, reply) => {
+    const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+    return reply.redirect(`${env.FRONTEND_BASE_URL}/app/checkout${qs}`);
+  });
+
   /* ------------------------ standalone negotiations ------------------------ */
 
   app.post(

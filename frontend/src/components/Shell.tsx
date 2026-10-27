@@ -19,8 +19,7 @@ import { useOrders } from '@/stores/orders';
 import { useSimple, shopItemToSimpleProduct } from '@/stores/simple';
 import { useInventory } from '@/stores/inventory';
 import { useBuyer } from '@/stores/buyer';
-import { usePrefs, useI18n } from '@/stores/prefs';
-import { LOCALES } from '@/lib/i18n';
+import { useI18n } from '@/stores/prefs';
 
 /**
  * One view at a time. The account menu (avatar) switches between buyer and seller
@@ -59,8 +58,7 @@ export default function Shell() {
   const [fade, setFade] = useState<'in' | 'out'>('in');
   const [path, setPath] = useState(() => (typeof location === 'undefined' ? '/' : location.pathname));
   const menuRef = useRef<HTMLDivElement>(null);
-  const { t, locale } = useI18n();
-  const setLocale = usePrefs((st) => st.setLocale);
+  const { t } = useI18n();
   const [slot, setSlot] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -222,27 +220,6 @@ export default function Shell() {
                 ))}
               </div>
             )}
-
-            <div className="mt-1 grid gap-1 border-t border-chalk pt-2" role="group" aria-label={t('menu.language')}>
-              <p className="px-3 text-xs font-semibold uppercase tracking-wide text-ink-muted">{t('menu.language')}</p>
-              <div className="flex gap-2 px-2 pb-1">
-                {LOCALES.map((l) => (
-                  <button
-                    key={l.id}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={locale === l.id}
-                    onClick={() => setLocale(l.id)}
-                    className={cn(
-                      'min-h-11 flex-1 rounded-2xl border text-base font-semibold text-ink transition',
-                      locale === l.id ? 'border-ink bg-marigold' : 'border-chalk-strong bg-paper-2',
-                    )}
-                  >
-                    {l.native}
-                  </button>
-                ))}
-              </div>
-            </div>
 
             <button
               type="button"

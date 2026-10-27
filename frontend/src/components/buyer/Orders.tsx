@@ -56,7 +56,7 @@ export default function Orders() {
         const pay = PAYMENT[o.paymentStatus ?? 'order_created'];
         const ready = go && o.trackerIndex === TRACKER_STEPS.length - 1;
         return (
-          <li key={o.id} className="surface grid gap-4 p-5">
+          <li key={o.id} className="surface ticket-edge grid gap-4 p-5">
             <div className="flex items-start gap-3">
               <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-paper-3 text-2xl" aria-hidden="true">{o.shopEmoji}</span>
               <div className="min-w-0 flex-1">

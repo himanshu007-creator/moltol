@@ -1126,37 +1126,20 @@ export class MoltolStore {
 
   /* ------------------------------ shop items --------------------------------- */
 
-  async createShopItem(input: {
-    shopId: string;
-    name: string;
-    emoji?: string;
-    sellCents: number;
-    floorCents: number;
-    costCents?: number | null;
-    category?: string | null;
-    lowStockAt?: number | null;
-    quantity?: number | null;
-    unit?: string | null;
-    customUnit?: string | null;
-    packSize?: number | null;
-    hindiName?: string | null;
-    archived?: boolean;
-  }) {
-    const { quantity, lowStockAt, packSize, ...rest } = input;
-    const rows = await this.db
-      .insert(shopItems)
-      .values({
-        ...rest,
-        ...(quantity !== undefined && quantity !== null ? { quantity: String(quantity) } : {}),
-        ...(lowStockAt !== undefined && lowStockAt !== null
-          ? { lowStockAt: String(lowStockAt) }
-          : {}),
-        ...(packSize !== undefined
-          ? { packSize: packSize === null ? null : String(packSize) }
-          : {}),
-      })
-      .returning();
+  async createShopItem(input: ShopItemInsertInput) {
+    const rows = await this.db.insert(shopItems).values(toItemInsertRow(input)).returning();
     return toShopItemRow(rows[0]!);
+  }
+
+  /** Same shape as `createShopItem`, one round trip for N rows — used by CSV/bulk import. */
+  async bulkCreateShopItems(shopId: string, inputs: Omit<ShopItemInsertInput, "shopId">[]) {
+    return this.db.transaction(async (tx) => {
+      const rows = await tx
+        .insert(shopItems)
+        .values(inputs.map((input) => toItemInsertRow({ ...input, shopId })))
+        .returning();
+      return rows.map(toShopItemRow);
+    });
   }
 
   async listShopItems(shopId: string) {
@@ -1295,6 +1278,33 @@ export type ShopItemRow = ReturnType<typeof toShopItemRow>;
 
 function toShopItemRow(row: typeof shopItems.$inferSelect) {
   return { ...row, quantity: toNumber(row.quantity) };
+}
+
+export interface ShopItemInsertInput {
+  shopId: string;
+  name: string;
+  emoji?: string;
+  sellCents: number;
+  floorCents: number;
+  costCents?: number | null;
+  category?: string | null;
+  lowStockAt?: number | null;
+  quantity?: number | null;
+  unit?: string | null;
+  customUnit?: string | null;
+  packSize?: number | null;
+  hindiName?: string | null;
+  archived?: boolean;
+}
+
+function toItemInsertRow(input: ShopItemInsertInput) {
+  const { quantity, lowStockAt, packSize, ...rest } = input;
+  return {
+    ...rest,
+    ...(quantity !== undefined && quantity !== null ? { quantity: String(quantity) } : {}),
+    ...(lowStockAt !== undefined && lowStockAt !== null ? { lowStockAt: String(lowStockAt) } : {}),
+    ...(packSize !== undefined ? { packSize: packSize === null ? null : String(packSize) } : {}),
+  };
 }
 
 async function nextSeqIn(tx: Tx, negotiationId: string): Promise<number> {

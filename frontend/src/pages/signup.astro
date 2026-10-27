@@ -28,13 +28,12 @@ import AuthForm from '../components/buyer/AuthForm';
 
   <script>
     import { applyI18n } from '@/lib/i18n';
-    import { usePrefs } from '@/stores/prefs';
 
     const role = new URLSearchParams(location.search).get('role');
     if (role === 'buyer' || role === 'seller') {
       document.querySelectorAll<HTMLElement>('[data-role-title]').forEach((el) => (el.dataset.i18n = `auth.signup.${role}.title`));
       document.querySelectorAll<HTMLElement>('[data-role-lede]').forEach((el) => (el.dataset.i18n = `auth.signup.${role}.lede`));
-      applyI18n(document, usePrefs.getState().locale);
+      applyI18n(document);
     }
   </script>
 </Base>

@@ -32,7 +32,16 @@ const UNIT_MAP: Record<string, SimpleUnit> = { kg: 'kg', '500g': '500g', piece: 
  * seller types a name instead of picking from the vegetable catalogue), with
  * `hindiName` doing double duty as "the display name override" regardless of
  * language (see `SimplePrice.tsx`'s `item.hindiName || itemName(...)`).
+ *
+ * Because of that, `id` alone is NOT a safe identity key once a seller has
+ * more than one real/custom item — they'd all share `id: 'cust'`. Every
+ * lookup/update by a specific product uses `productKey()` instead, which
+ * falls back to the real backend row id when `id` can't tell products apart.
  */
+export function productKey(p: Pick<SimpleProduct, 'id' | 'backendItemId'>): string {
+  return p.backendItemId ?? p.id;
+}
+
 export function shopItemToSimpleProduct(item: ShopItem): SimpleProduct {
   return {
     id: 'cust',
@@ -85,7 +94,8 @@ interface SimpleStore {
   setProducts: (products: SimpleProduct[]) => void;
   /** create (or update) a single listing — the shared product-creation path */
   addProduct: (product: SimpleProduct) => void;
-  setPrice: (id: ItemId, sellCents: number, floorCents: number) => void;
+  /** `key` is `productKey()` — `backendItemId` when the product has one, else `id`. */
+  setPrice: (key: string, sellCents: number, floorCents: number) => void;
   setPersona: (persona: SimplePersona) => void;
   finishOnboarding: () => void;
   toggleMute: () => void;
@@ -121,13 +131,13 @@ export const useSimple = create<SimpleStore>()(
       setProducts: (products) => set({ products }),
       addProduct: (product) =>
         set({
-          products: get().products.some((p) => p.id === product.id)
-            ? get().products.map((p) => (p.id === product.id ? { ...p, ...product } : p))
+          products: get().products.some((p) => productKey(p) === productKey(product))
+            ? get().products.map((p) => (productKey(p) === productKey(product) ? { ...p, ...product } : p))
             : [...get().products, product],
         }),
-      setPrice: (id, sellCents, floorCents) =>
+      setPrice: (key, sellCents, floorCents) =>
         set({
-          products: get().products.map((p) => (p.id === id ? { ...p, sellCents, floorCents } : p)),
+          products: get().products.map((p) => (productKey(p) === key ? { ...p, sellCents, floorCents } : p)),
         }),
       setPersona: (persona) => set({ persona }),
       finishOnboarding: () => set({ onboarded: true }),

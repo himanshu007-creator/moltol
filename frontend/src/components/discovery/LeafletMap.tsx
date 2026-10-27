@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react';
 import 'leaflet/dist/leaflet.css';
 import { navigate } from 'astro:transitions/client';
 import { OSM_TILE_URL, OSM_ATTRIBUTION, type GeoPoint } from '@/lib/geo';
-import { useI18n } from '@/stores/prefs';
 
 interface Pin {
   id: string;
@@ -19,7 +18,6 @@ const SATELLITE_ATTRIBUTION = '&copy; Esri — Source: Esri, Maxar, Earthstar Ge
 
 /** A real tile map (street or satellite): your avatar plus every shop pin, live distances in the popup. */
 export default function LeafletMap({ point, pins, satellite = false }: { point: GeoPoint; pins: Pin[]; satellite?: boolean }) {
-  const { locale } = useI18n();
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<import('leaflet').Map | null>(null);
   const meMarker = useRef<import('leaflet').Marker | null>(null);
@@ -40,7 +38,7 @@ export default function LeafletMap({ point, pins, satellite = false }: { point: 
       // interactive: false — it's a position indicator, not a control; Leaflet otherwise
       // gives every marker role="button"/tabindex, with no accessible name to go with it.
       meMarker.current = L.marker([point.lat, point.lng], { icon: meIcon(L), zIndexOffset: 1000, interactive: false, keyboard: false }).addTo(m);
-      updatePins(L, m, pinMarkers.current, pins, locale);
+      updatePins(L, m, pinMarkers.current, pins);
     });
     return () => {
       cancelled = true;
@@ -73,12 +71,12 @@ export default function LeafletMap({ point, pins, satellite = false }: { point: 
     }
   }, [point.lat, point.lng]);
 
-  // keep pins in sync (open/closed flips, distance labels, locale)
+  // keep pins in sync (open/closed flips, distance labels)
   useEffect(() => {
     if (!map.current) return;
-    void import('leaflet').then((L) => updatePins(L, map.current!, pinMarkers.current, pins, locale));
+    void import('leaflet').then((L) => updatePins(L, map.current!, pinMarkers.current, pins));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pins, locale]);
+  }, [pins]);
 
   return (
     <div
@@ -119,9 +117,9 @@ function pinIcon(L: typeof import('leaflet'), p: Pin, closedLabel: string) {
   });
 }
 
-function updatePins(L: typeof import('leaflet'), m: import('leaflet').Map, cache: Map<string, import('leaflet').Marker>, pins: Pin[], locale: 'en' | 'hi') {
-  const closedLabel = locale === 'hi' ? 'बंद' : 'Closed';
-  const awayLabel = locale === 'hi' ? 'मी दूर' : 'm away';
+function updatePins(L: typeof import('leaflet'), m: import('leaflet').Map, cache: Map<string, import('leaflet').Marker>, pins: Pin[]) {
+  const closedLabel = 'Closed';
+  const awayLabel = 'm away';
   const seen = new Set<string>();
   for (const p of pins) {
     seen.add(p.id);
