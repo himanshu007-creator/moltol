@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import {
   getMyShop,
   addShopItem,
+  bulkAddShopItems,
   updateShopItem,
   adjustShopItemStock,
   type ShopItem,
@@ -87,16 +88,16 @@ export const useInventory = create<InventoryState>()((set, get) => ({
   },
 
   importMany: async (token, drafts) => {
-    let n = 0;
-    for (const draft of drafts) {
-      try {
-        await get().add(token, draft);
-        n++;
-      } catch {
-        // one bad row doesn't sink the rest — keep whatever succeeded
-      }
+    try {
+      const rows = await bulkAddShopItems(token, drafts);
+      set({ items: [...rows, ...get().items] });
+      return rows.length;
+    } catch {
+      // one bad row in the batch now sinks the whole import (all-or-nothing,
+      // real audit-trail write) — CSV import is a small/rare path, the
+      // clearer error semantics are worth the lost partial-success behavior.
+      return 0;
     }
-    return n;
   },
 
   reset: () => set({ items: [], log: [], loaded: false }),

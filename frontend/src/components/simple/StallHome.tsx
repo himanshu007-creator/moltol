@@ -96,6 +96,7 @@ export default function StallHome() {
           <h1 className="t-h1 truncate !text-[#23180a]">{stallName}</h1>
         </div>
       </section>
+      <div className="garland-divider" aria-hidden="true"></div>
 
       {/* the big switch: open or closed, one tap */}
       <button

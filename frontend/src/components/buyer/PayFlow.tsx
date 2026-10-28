@@ -330,7 +330,7 @@ export default function PayFlow() {
             damping: 20,
             delay: 0.12,
           }}
-          className="surface grid gap-4 p-5 sm:p-6"
+          className="surface ticket-edge grid gap-4 p-5 sm:p-6"
           aria-labelledby="receipt-h"
         >
           <div className="flex items-start justify-between gap-3">

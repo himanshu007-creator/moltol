@@ -11,16 +11,17 @@ interface Props {
 const { shell = true } = Astro.props;
 ---
 
-<header class="sticky top-0 z-40 border-b border-chalk bg-paper-2/95 pt-safe backdrop-blur-xl">
+<header class="sticky top-0 z-40 relative bg-paper-2/95 pt-safe backdrop-blur-xl">
   <div class="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4 sm:h-[4.5rem] sm:px-8">
     <Logo />
     <div class="flex items-center gap-2">
       <a href="/login" class="guest-only btn btn-quiet !min-h-11 !px-4 !text-sm max-sm:hidden" data-i18n="header.login">Log in</a>
       <a href="/signup" class="guest-only btn btn-primary !min-h-11 !px-4 !text-sm" data-i18n="header.signup">Get started</a>
-      {!shell && <a href="/app" class="auth-only btn btn-primary !min-h-11 !px-4 !text-sm" data-i18n="header.openApp">Open app</a>}
+      {!shell && <a href="/app" class="auth-only btn btn-primary !min-h-11 !px-4 !text-sm" data-i18n="header.openApp">Go to App</a>}
       <PrefsControls client:load />
       <!-- the account menu (role, seller mode, language) is mounted here by the Shell island -->
       <div id="account-slot" class="relative"></div>
     </div>
   </div>
+  <div class="garland-divider absolute inset-x-0 bottom-0 !h-2.5" aria-hidden="true"></div>
 </header>

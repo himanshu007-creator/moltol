@@ -6,13 +6,16 @@
     </linearGradient>
   </defs>
   <rect width="64" height="64" rx="16" fill="url(#badge)" />
-  <!-- तराज़ू — a bazaar scale: one honest price balancing the other -->
-  <circle cx="32" cy="12" r="3" fill="#FFFDF8" />
-  <line x1="32" y1="15" x2="32" y2="38" stroke="#FFFDF8" stroke-width="2.6" stroke-linecap="round" />
-  <line x1="17" y1="21" x2="47" y2="21" stroke="#FFFDF8" stroke-width="2.6" stroke-linecap="round" />
-  <line x1="17" y1="21" x2="17" y2="32" stroke="#FFFDF8" stroke-width="2.2" stroke-linecap="round" />
-  <line x1="47" y1="21" x2="47" y2="32" stroke="#FFFDF8" stroke-width="2.2" stroke-linecap="round" />
-  <circle cx="17" cy="35" r="5.4" fill="none" stroke="#FFFDF8" stroke-width="2.2" />
-  <circle cx="47" cy="29" r="5.4" fill="none" stroke="#FFFDF8" stroke-width="2.2" />
-  <path d="M24 48 Q32 53 40 48" stroke="#FFFDF8" stroke-width="2.6" stroke-linecap="round" fill="none" />
+  <!-- a stall's scalloped awning over the तराज़ू (bazaar scale) — one honest
+       price balancing the other, under a shopkeeper's own canopy -->
+  <path d="M12 16 Q16 10 20 16 Q24 10 28 16 Q32 10 36 16 Q40 10 44 16 Q48 10 52 16 L52 19 L12 19 Z" fill="#FFFDF8" opacity="0.95" />
+  <line x1="12" y1="19" x2="52" y2="19" stroke="#B3001B" stroke-width="1.6" />
+  <!-- scale -->
+  <line x1="32" y1="22" x2="32" y2="40" stroke="#FFFDF8" stroke-width="3.2" stroke-linecap="round" />
+  <line x1="16" y1="25" x2="48" y2="25" stroke="#FFFDF8" stroke-width="3.2" stroke-linecap="round" />
+  <line x1="16" y1="25" x2="16" y2="35" stroke="#FFFDF8" stroke-width="2.4" stroke-linecap="round" />
+  <line x1="48" y1="25" x2="48" y2="31" stroke="#FFFDF8" stroke-width="2.4" stroke-linecap="round" />
+  <path d="M10 35a6 6 0 0 0 12 0z" fill="#FFFDF8" />
+  <path d="M42 31a6 6 0 0 0 12 0z" fill="#FFFDF8" />
+  <path d="M23 49 Q32 54 41 49" stroke="#FFFDF8" stroke-width="3.2" stroke-linecap="round" fill="none" />
 </svg>

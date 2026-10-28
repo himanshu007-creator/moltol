@@ -4,6 +4,7 @@ import { ClientRouter } from 'astro:transitions';
 import Header from '@/components/astro/Header.astro';
 import Footer from '@/components/astro/Footer.astro';
 import Shell from '@/components/Shell.tsx';
+import InstallPrompt from '@/components/react/InstallPrompt.tsx';
 
 interface Props {
   title?: string;
@@ -41,6 +42,8 @@ const {
     <meta name="apple-mobile-web-app-title" content="MolTol" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -107,6 +110,14 @@ const {
         <p id="nav-splash-line" class="nav-splash-line"></p>
       </div>
     </div>
+
+    <InstallPrompt client:load />
+
+    <script is:inline>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
+      }
+    </script>
 
     <script>
       import { usePrefs } from '@/stores/prefs';
