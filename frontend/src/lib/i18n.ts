@@ -1,16 +1,7 @@
 /**
- * Light i18n (FE_plan §9). English is the base; Hindi and Punjabi cover the
- * demo moment. One dictionary, applied to React islands via `useI18n()` and to
+ * English-only copy. One dictionary, applied to React islands via `t()` and to
  * static Astro chrome via `[data-i18n]` attributes (see Base.astro).
- * Later this can graduate to Astro i18n routing without touching call sites.
  */
-
-export type Locale = 'en' | 'hi';
-
-export const LOCALES: Array<{ id: Locale; label: string; native: string }> = [
-  { id: 'en', label: 'English', native: 'English' },
-  { id: 'hi', label: 'Hindi', native: 'हिन्दी' },
-];
 
 type Dict = Record<string, string>;
 
@@ -75,37 +66,29 @@ const legacyEn: Dict = {
 };
 
 import { en as copyEn } from './copy/en.ts';
-import { hi as copyHi } from './copy/hi.ts';
 
-/** Copy for both locales. Hindi falls back to English only for legacy keys not yet translated. */
-export const dict: Record<Locale, Dict> = {
-  en: { ...legacyEn, ...copyEn },
-  hi: { ...legacyEn, ...copyHi },
-};
+export const dict: Dict = { ...legacyEn, ...copyEn };
 
-export function t(locale: Locale, key: string): string {
-  return dict[locale][key] ?? dict.en[key] ?? key;
+export function t(key: string): string {
+  return dict[key] ?? key;
 }
 
 /**
- * Apply translations to the static Astro chrome. Elements opt in with
+ * Apply copy to the static Astro chrome. Elements opt in with
  *   <span data-i18n="hero.title"></span>
  *   <button data-i18n-attr="placeholder:ledger.askPlaceholder"></button>
- * Missing keys fall back to English.
  */
-export function applyI18n(root: ParentNode, locale: Locale): void {
+export function applyI18n(root: ParentNode): void {
   root.querySelectorAll<HTMLElement>('[data-i18n]').forEach((el) => {
     const key = el.dataset.i18n;
-    if (key) el.textContent = t(locale, key);
+    if (key) el.textContent = t(key);
   });
   root.querySelectorAll<HTMLElement>('[data-i18n-attr]').forEach((el) => {
     const spec = el.dataset.i18nAttr;
     if (!spec) return;
     for (const pair of spec.split(',')) {
       const [attr, key] = pair.split(':');
-      if (attr && key) el.setAttribute(attr.trim(), t(locale, key.trim()));
+      if (attr && key) el.setAttribute(attr.trim(), t(key.trim()));
     }
   });
-  const html = root instanceof Document ? root.documentElement : document.documentElement;
-  html.lang = locale;
 }

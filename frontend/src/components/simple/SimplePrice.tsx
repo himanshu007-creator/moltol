@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { useSimple } from '@/stores/simple';
+import { useSimple, productKey } from '@/stores/simple';
 import { useSession } from '@/stores/session';
 import { s, nativeRupaye, itemName, SIMPLE_ITEMS } from '@/lib/simple/strings';
 import { speakRupaye } from '@/lib/voice';
@@ -26,10 +26,12 @@ export default function SimplePrice() {
     }, SYNC_DEBOUNCE_MS);
   };
 
-  const set = (id: typeof products[number]['id'], sellCents: number, floorCents: number) => {
-    setPrice(id, sellCents, floorCents);
+  // `key` is productKey() — plain `id` collides whenever more than one real/
+  // custom item shares `id: 'cust'`, which used to move every such item's
+  // price at once.
+  const set = (key: string, backendItemId: string | undefined, sellCents: number, floorCents: number) => {
+    setPrice(key, sellCents, floorCents);
     speakRupaye(sellCents, language, { mute });
-    const backendItemId = products.find((p) => p.id === id)?.backendItemId;
     if (token && backendItemId) scheduleSync(backendItemId, sellCents, floorCents);
   };
 
@@ -44,8 +46,10 @@ export default function SimplePrice() {
       <p className="mt-1 text-sm text-ink-faint">{dict.u.priceDefault}</p>
 
       <div className="mt-4 grid gap-3">
-        {items.map((item) => (
-          <div key={item.id} className="surface p-4">
+        {items.map((item) => {
+          const key = productKey(item);
+          return (
+          <div key={key} className="surface p-4">
             <div className="flex items-center gap-3">
               {item.image ? (
                 <img src={item.image} alt="" width={40} height={40} className="h-10 w-10 rounded-xl" />
@@ -57,8 +61,8 @@ export default function SimplePrice() {
                 <p className="text-sm text-ink-faint">{nativeRupaye(item.sellCents, language)} · 🔴 {nativeRupaye(item.floorCents, language)}</p>
               </div>
               <div className="flex items-center gap-2">
-                <StepBtn label="-" onClick={() => set(item.id, item.sellCents - 100, item.floorCents)} />
-                <StepBtn label="+" onClick={() => set(item.id, item.sellCents + 100, item.floorCents)} />
+                <StepBtn label="-" onClick={() => set(key, item.backendItemId, item.sellCents - 100, item.floorCents)} />
+                <StepBtn label="+" onClick={() => set(key, item.backendItemId, item.sellCents + 100, item.floorCents)} />
               </div>
             </div>
             <input
@@ -67,12 +71,13 @@ export default function SimplePrice() {
               max={Math.max(item.floorCents + 1000, item.sellCents * 2)}
               step={100}
               value={item.sellCents}
-              onChange={(e) => set(item.id, Number(e.target.value), item.floorCents)}
+              onChange={(e) => set(key, item.backendItemId, Number(e.target.value), item.floorCents)}
               aria-label={`${itemName(item.def, language)} ${dict.u.priceTitle}`}
               className="mt-3 w-full accent-marigold"
             />
           </div>
-        ))}
+          );
+        })}
         {!items.length && (
           <p className="surface p-5 text-center text-ink-faint">
             {dict.u.skip} — <a href="/app/seller/simple/setup" className="text-marigold underline">{dict.u.setup}</a>

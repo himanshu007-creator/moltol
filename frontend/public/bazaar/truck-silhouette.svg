@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 180" width="420" height="180" role="img" aria-label="">
+  <!-- flatbed box -->
+  <rect x="18" y="46" width="230" height="86" rx="6" fill="#B3001B"/>
+  <rect x="18" y="46" width="230" height="16" fill="#FFB300"/>
+  <rect x="18" y="110" width="230" height="10" fill="#FFB300" opacity="0.8"/>
+  <!-- cab -->
+  <path d="M248 132V84c0-7 4-13 10-16l34-16c6-3 13 1 13 8v72z" fill="#1F2FA8"/>
+  <rect x="268" y="76" width="30" height="24" rx="3" fill="#FFFDF8" opacity="0.85"/>
+  <!-- bumper -->
+  <rect x="14" y="128" width="296" height="10" rx="3" fill="#14110C"/>
+  <!-- wheels -->
+  <circle cx="70" cy="146" r="22" fill="#14110C"/>
+  <circle cx="70" cy="146" r="9" fill="#8C8372"/>
+  <circle cx="246" cy="146" r="22" fill="#14110C"/>
+  <circle cx="246" cy="146" r="9" fill="#8C8372"/>
+  <!-- tailgate lettering band: a painted name plate, not a blank box -->
+  <rect x="26" y="68" width="120" height="22" rx="4" fill="#FFFDF8" opacity="0.92"/>
+  <text x="86" y="84" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-weight="700" font-size="13" fill="#B3001B">MolTol</text>
+</svg>

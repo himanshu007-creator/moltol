@@ -26,6 +26,7 @@ export default function ShopDiscovery() {
   const source = useYou((s) => s.source);
   const setGps = useYou((s) => s.setGps);
   const setDenied = useYou((s) => s.setDenied);
+  const setManual = useYou((s) => s.setManual);
 
   const [watchKey, setWatchKey] = useState(0);
   // "Not now" silences the prompt until the buyer has moved at least 50 m from where they dismissed it
@@ -46,6 +47,16 @@ export default function ShopDiscovery() {
     if (!('geolocation' in navigator)) {
       setDenied();
       return;
+    }
+    // Already-blocked permission skips straight to "denied" instead of waiting
+    // out the full timeout — most browsers resolve this instantly.
+    if ('permissions' in navigator) {
+      navigator.permissions
+        .query({ name: 'geolocation' })
+        .then((status) => {
+          if (status.state === 'denied') setDenied();
+        })
+        .catch(() => {});
     }
     const timer = setTimeout(setDenied, GPS_TIMEOUT_MS);
     const id = navigator.geolocation.watchPosition(
@@ -83,9 +94,11 @@ export default function ShopDiscovery() {
   const statusLine =
     source === 'gps'
       ? t('discovery.status.gps')
-      : source === 'locating'
-        ? t('discovery.status.locating')
-        : t('discovery.status.off');
+      : source === 'manual'
+        ? 'Using your chosen location'
+        : source === 'locating'
+          ? t('discovery.status.locating')
+          : t('discovery.status.off');
 
   const enterShop = (id: string) => {
     setPicking(false);
@@ -105,6 +118,10 @@ export default function ShopDiscovery() {
             {t('discovery.tryGps')}
           </button>
         )}
+        <div className="grid w-full max-w-sm gap-2 border-t border-chalk pt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Or search your area</p>
+          <PlaceSearch onPick={setManual} />
+        </div>
       </div>
     );
   }
@@ -133,7 +150,10 @@ export default function ShopDiscovery() {
 
       <div className="grid gap-4">
         {sorted.length === 0 ? (
-          <p className="surface p-6 text-center text-ink-muted">{t('discovery.noneOpen')}</p>
+          <div className="surface grid justify-items-center gap-3 p-8 text-center">
+            <img src="/bazaar/truck-silhouette.svg" alt="" aria-hidden="true" className="h-16 w-auto max-w-full opacity-70" />
+            <p className="text-ink-muted">{t('discovery.noneOpen')}</p>
+          </div>
         ) : (
           <ul className="grid gap-3" data-testid="open-stalls">
             {sorted.map((s) => (
@@ -204,6 +224,73 @@ export default function ShopDiscovery() {
           <ShopPicker key="picker" shops={nearbyList} dists={dists} onPick={enterShop} onClose={() => setPicking(false)} />
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+interface PlaceHit {
+  lat: number;
+  lng: number;
+  label: string;
+}
+
+/** Typed place search (OSM Nominatim, no key needed) — a real alternative to GPS, not a fake default. */
+function PlaceSearch({ onPick }: { onPick: (p: GeoPoint) => void }) {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<PlaceHit[] | null>(null);
+  const [searching, setSearching] = useState(false);
+
+  const search = async () => {
+    const query = q.trim();
+    if (!query) return;
+    setSearching(true);
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(query)}`);
+      const json: Array<{ lat: string; lon: string; display_name: string }> = await res.json();
+      setResults(json.map((r) => ({ lat: Number(r.lat), lng: Number(r.lon), label: r.display_name })));
+    } catch {
+      setResults([]);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-2">
+      <form
+        className="flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void search();
+        }}
+      >
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="e.g. Connaught Place, Delhi"
+          aria-label="Search your area or city"
+          className="field min-w-0 flex-1"
+        />
+        <button type="submit" disabled={searching || !q.trim()} className="btn btn-quiet shrink-0">
+          {searching ? '…' : 'Search'}
+        </button>
+      </form>
+      {results && (
+        <ul className="grid gap-1 text-left">
+          {results.length === 0 && <li className="text-sm text-ink-faint">No matches. Try a different search.</li>}
+          {results.map((r, i) => (
+            <li key={i}>
+              <button
+                type="button"
+                onClick={() => onPick({ lat: r.lat, lng: r.lng })}
+                className="block w-full truncate rounded-xl bg-paper-3 px-3 py-2 text-left text-sm text-ink transition hover:bg-paper"
+              >
+                📍 {r.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

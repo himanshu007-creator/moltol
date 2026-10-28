@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { dealChannel, SHOP_STATUS_CHANNEL } from "@moltol/config";
 import {
+  BulkCreateShopItemsRequestSchema,
   CreateShopItemRequestSchema,
   CreateShopRequestSchema,
   NearbyQuerySchema,
@@ -134,6 +135,27 @@ export async function registerShopRoutes(
 
     const item = await store.createShopItem({ shopId: shop.id, ...parsed.data });
     return reply.code(201).send(shopItemView(item));
+  });
+
+  /** CSV/bulk import — one round trip for N items instead of N sequential creates. All-or-nothing. */
+  app.post("/v1/shops/me/items/bulk", auth, async (req, reply) => {
+    const shop = await store.getShopByUserId(req.user.sub);
+    if (!shop) return sendProblem(reply, 404, "no_shop", "Create a shop first.");
+
+    const parsed = BulkCreateShopItemsRequestSchema.safeParse(req.body);
+    if (!parsed.success) return invalidBody(reply, parsed.error);
+
+    for (const item of parsed.data.items) {
+      const invalid = checkItem(reply, {
+        ...item,
+        quantity: item.quantity ?? null,
+        unit: item.unit ?? null,
+      });
+      if (invalid) return invalid;
+    }
+
+    const items = await store.bulkCreateShopItems(shop.id, parsed.data.items);
+    return reply.code(201).send(items.map(shopItemView));
   });
 
   app.patch<{ Params: { itemId: string } }>(
