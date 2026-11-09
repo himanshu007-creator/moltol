@@ -16,6 +16,7 @@ import {
 } from "@/lib/backend";
 import { formatMoney } from "@/lib/money";
 import { roundQty } from "@/lib/units";
+import { whenHydrated } from "@/lib/hydrated";
 import { cn } from "@/lib/cn";
 import TickPrice from "@/components/motion/TickPrice";
 import HashVerify from "@/components/motion/HashVerify";
@@ -23,6 +24,32 @@ import HashVerify from "@/components/motion/HashVerify";
 const Handshake = lazy(() => import("../theatre/Handshake"));
 
 type Stage = "ready" | "paying" | "proof" | "done";
+
+/**
+ * True once both the bazaar and session stores have read IndexedDB. A fresh
+ * tab — e.g. the one PayPal's return redirect opens — starts with empty
+ * defaults (no lanes, no token), so anything rendered or decided before this
+ * would show ₹0 / "nothing to settle" for a basket that's really there.
+ */
+function useStoresHydrated(): boolean {
+  const [ready, setReady] = useState(
+    () => useBazaar.persist.hasHydrated() && useSession.persist.hasHydrated(),
+  );
+  useEffect(() => {
+    let left = 2;
+    const one = () => {
+      left -= 1;
+      if (left === 0) setReady(true);
+    };
+    const a = whenHydrated(useBazaar, one);
+    const b = whenHydrated(useSession, one);
+    return () => {
+      a?.();
+      b?.();
+    };
+  }, []);
+  return ready;
+}
 
 /**
  * Settle the agreed prices against the real basket: PayPal sandbox checkout,
@@ -51,11 +78,39 @@ export default function PayFlow() {
   // Shown only when the gateway charged a different currency than the deal
   // (INR shop -> PayPal settling in USD) — see ADR 0008.
   const [charge, setCharge] = useState<BasketCheckoutResult | null>(null);
+  const hydrated = useStoresHydrated();
+  // True until we've asked the server whether this basket is already paid —
+  // so a reload / PayPal-return tab never offers "Pay now" for a paid basket.
+  const [resolving, setResolving] = useState(true);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const agreed = sum.lanes.filter((l) => !l.noDeal && l.agreedCents != null);
   const order = orderId
     ? orders.orders.find((o) => o.id === orderId)
     : undefined;
+
+  // Once paid, the server's order is the source of truth (exact INR totals and
+  // line amounts); the live lanes are only a fallback before it has loaded.
+  const paidCents = order?.totalCents ?? sum.totalAgreedCents;
+  const stickerCents = order?.listCents ?? sum.totalListCents;
+  const savedCents = order ? order.savingsCents : sum.totalSavedCents;
+  const receiptLines = order
+    ? order.lines
+        .filter((l) => !l.noDeal)
+        .map((l) => ({
+          key: l.sku,
+          emoji: l.emoji,
+          title: l.title,
+          qty: l.qty,
+          cents: l.lineCents ?? Math.round(l.unitCents * l.qty),
+        }))
+    : agreed.map((l) => ({
+        key: l.sku,
+        emoji: l.emoji,
+        title: l.title.en,
+        qty: l.qty,
+        cents: l.agreedCents!,
+      }));
 
   // Proof plays once, automatically, then the receipt prints itself — no
   // "see my receipt" click in between. The savings balloon pops a beat before
@@ -112,6 +167,58 @@ export default function PayFlow() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [approveUrl, realStep, bz.basketId, session.token]);
 
+  // On load (after IndexedDB hydration), ask the server where this basket
+  // actually stands. Covers the tab PayPal's return redirect opens — it has no
+  // `approveUrl` in memory, so the poll above never runs there — plus a plain
+  // reload after paying. PayPal appends `token` to both its return and cancel
+  // URLs, but only an approval carries `PayerID`.
+  useEffect(() => {
+    if (!hydrated) return;
+    const basketId = useBazaar.getState().basketId;
+    const token = useSession.getState().token;
+    if (!basketId || !token) {
+      setResolving(false);
+      return;
+    }
+    const params = new URLSearchParams(location.search);
+    const fromPayPal = params.has("token");
+    const approved = params.has("PayerID");
+    let cancelled = false;
+
+    getBasket(token, basketId)
+      .then(async (b) => {
+        if (cancelled) return;
+        if (b.state === "paid") {
+          const real = await getOrder(token, basketId);
+          if (cancelled) return;
+          useOrders.getState().upsert(fromBackendOrder(real));
+          setOrderId(basketId);
+          setRealStep("captured");
+          setStage("done");
+        } else if (b.state === "payment_pending" && fromPayPal) {
+          if (approved) {
+            setOrderId(basketId);
+            setRealStep("approved");
+            setStage("paying");
+            await finishCapture(token, basketId);
+          } else {
+            setNotice("Payment was cancelled on PayPal. Nothing was charged — you can try again.");
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (cancelled) return;
+        setResolving(false);
+        if (fromPayPal) history.replaceState(null, "", location.pathname);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated]);
+
   const pay = async () => {
     setPayError(null);
     setStage("paying");
@@ -161,7 +268,16 @@ export default function PayFlow() {
     void navigate("/app/buy");
   };
 
-  if (sum.totalDone === 0) {
+  if ((!hydrated || resolving) && stage === "ready") {
+    return (
+      <div role="status" className="surface grid justify-items-center gap-3 p-10 text-center">
+        <span className="h-8 w-8 animate-spin rounded-full border-2 border-chalk border-t-marigold motion-reduce:animate-none" aria-hidden="true" />
+        <p className="text-sm text-ink-muted">Checking your payment…</p>
+      </div>
+    );
+  }
+
+  if (sum.totalDone === 0 && !order) {
     return (
       <div className="surface grid justify-items-center gap-4 p-10 text-center">
         <span
@@ -203,7 +319,7 @@ export default function PayFlow() {
           <div>
             <p className="text-sm text-paper/70">Paying {bz.shopName.en}</p>
             <TickPrice
-              cents={sum.totalAgreedCents}
+              cents={paidCents}
               className="t-num mt-1 block text-4xl font-semibold text-paper"
             />
             {charge && charge.fxRate !== 1 && (
@@ -274,7 +390,7 @@ export default function PayFlow() {
         </p>
 
         <AnimatePresence>
-          {showSavedBalloon && sum.totalSavedCents > 0 && (
+          {showSavedBalloon && savedCents > 0 && (
             <motion.div
               initial={{ opacity: 0, y: 12, scale: 0.85 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -282,7 +398,7 @@ export default function PayFlow() {
               transition={{ type: "spring", stiffness: 260, damping: 18 }}
               className="pointer-events-none fixed inset-x-0 top-24 z-40 mx-auto w-fit rounded-full bg-teal px-5 py-2.5 text-base font-bold text-white shadow-2xl"
             >
-              🎉 You saved {formatMoney(sum.totalSavedCents)}!
+              🎉 You saved {formatMoney(savedCents)}!
             </motion.div>
           )}
         </AnimatePresence>
@@ -310,12 +426,12 @@ export default function PayFlow() {
           </span>
           <p className="t-label !text-[#5b3200]">Paid and proved</p>
           <TickPrice
-            cents={sum.totalAgreedCents}
+            cents={paidCents}
             className="t-num text-4xl font-semibold text-[#23180a] sm:text-5xl"
           />
           <p className="text-sm text-[#3d2a0c]">
-            {sum.totalSavedCents > 0
-              ? `You saved ${formatMoney(sum.totalSavedCents)} against the sticker price`
+            {savedCents > 0
+              ? `You saved ${formatMoney(savedCents)} against the sticker price`
               : "Paid at the sticker price"}
           </p>
         </motion.section>
@@ -339,7 +455,7 @@ export default function PayFlow() {
                 Receipt
               </h2>
               <p className="text-xs text-ink-muted">
-                {bz.shopName.en} ·{" "}
+                {order?.shopName || bz.shopName.en} ·{" "}
                 {when.toLocaleString("en-IN", {
                   dateStyle: "medium",
                   timeStyle: "short",
@@ -353,26 +469,24 @@ export default function PayFlow() {
             <dd className="t-num text-right text-ink">{orderId}</dd>
             <dt className="text-ink-muted">Sticker price</dt>
             <dd className="t-num text-right text-ink-muted line-through">
-              {formatMoney(sum.totalListCents)}
+              {formatMoney(stickerCents)}
             </dd>
             <dt className="font-semibold text-ink">You paid</dt>
             <dd className="t-num text-right text-lg font-semibold text-ink">
-              {formatMoney(sum.totalAgreedCents)}
+              {formatMoney(paidCents)}
             </dd>
           </dl>
           <div className="border-t border-dashed border-chalk-strong pt-4">
             <ul className="grid gap-2">
-              {agreed.map((l) => (
-                <li key={l.sku} className="flex items-center gap-3 text-sm">
+              {receiptLines.map((l) => (
+                <li key={l.key} className="flex items-center gap-3 text-sm">
                   <span className="text-lg" aria-hidden="true">
                     {l.emoji}
                   </span>
                   <span className="flex-1 truncate text-ink">
-                    {l.title.en} × {roundQty(l.qty)}
+                    {l.title} × {roundQty(l.qty)}
                   </span>
-                  <span className="t-num text-ink">
-                    {formatMoney(l.agreedCents!)}
-                  </span>
+                  <span className="t-num text-ink">{formatMoney(l.cents)}</span>
                 </li>
               ))}
             </ul>
@@ -397,13 +511,13 @@ export default function PayFlow() {
           <div className="grid grid-cols-3 gap-2 text-center">
             <ProofCell label="Limits" value="Verified" tone="text-teal" />
             <ProofCell
-              label={`Items × ${agreed.length}`}
+              label={`Items × ${receiptLines.length}`}
               value="Within limits"
               tone="text-teal"
             />
             <ProofCell
               label="Fairness"
-              value={`${sum.fairness}%`}
+              value={`${order?.fairness ?? sum.fairness}%`}
               tone="text-warn"
             />
           </div>
@@ -412,14 +526,14 @@ export default function PayFlow() {
               Settlement hash
             </p>
             <HashVerify
-              input={`${orderId}|${sum.totalAgreedCents}|${sum.totalMarketCents}`}
+              input={`${orderId}|${paidCents}|${order?.marketCents ?? sum.totalMarketCents}`}
             />
           </div>
         </section>
 
         <section className="surface grid gap-4 p-5" aria-labelledby="track-h">
           <h2 id="track-h" className="t-h2">
-            {bz.shopName.en} is packing your basket
+            {order?.shopName || bz.shopName.en} is packing your basket
           </h2>
           <Tracker />
         </section>
@@ -532,6 +646,12 @@ export default function PayFlow() {
           </p>
         )}
       </section>
+
+      {notice && (
+        <p role="status" className="rounded-2xl bg-marigold/15 px-4 py-3 text-sm font-medium text-warn">
+          {notice}
+        </p>
+      )}
 
       <a href="/app/bazaar" className="btn btn-link mx-auto">
         Back to the live bazaar
