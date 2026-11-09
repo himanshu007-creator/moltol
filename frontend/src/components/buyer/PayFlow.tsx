@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { navigate } from "astro:transitions/client";
 import { selectBazaar, useBazaar } from "@/stores/bazaar";
@@ -24,6 +24,46 @@ import HashVerify from "@/components/motion/HashVerify";
 const Handshake = lazy(() => import("../theatre/Handshake"));
 
 type Stage = "ready" | "paying" | "proof" | "done";
+
+/**
+ * PayPal runs in a popup. When PayPal redirects that popup back to
+ * /app/checkout, it tells the tab that started the payment over this channel
+ * and closes itself — the original tab captures and shows the receipt, so the
+ * buyer never ends up in a second copy of the app.
+ */
+const PAYPAL_CHANNEL = "moltol-paypal";
+const PENDING_KEY = "moltol-paypal-pending";
+const PENDING_TTL_MS = 30 * 60_000;
+type PayPalMsg = { kind: "approved" | "cancelled"; basketId: string };
+
+function markPending(basketId: string) {
+  try {
+    localStorage.setItem(PENDING_KEY, JSON.stringify({ basketId, at: Date.now() }));
+  } catch {
+    /* storage blocked — the popup just falls back to finishing on its own */
+  }
+}
+function clearPending() {
+  try {
+    localStorage.removeItem(PENDING_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+/** Non-null only inside the PayPal popup, once PayPal has redirected it back here. */
+function popupReturn(): PayPalMsg | null {
+  const params = new URLSearchParams(location.search);
+  if (!params.has("token")) return null;
+  try {
+    const raw = localStorage.getItem(PENDING_KEY);
+    if (!raw) return null;
+    const { basketId, at } = JSON.parse(raw) as { basketId: string; at: number };
+    if (Date.now() - at > PENDING_TTL_MS) return null;
+    return { kind: params.has("PayerID") ? "approved" : "cancelled", basketId };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * True once both the bazaar and session stores have read IndexedDB. A fresh
@@ -83,6 +123,23 @@ export default function PayFlow() {
   // so a reload / PayPal-return tab never offers "Pay now" for a paid basket.
   const [resolving, setResolving] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
+  // Inside the PayPal popup after its redirect back: what we told the main tab.
+  const [popupMsg, setPopupMsg] = useState<PayPalMsg | null>(null);
+  const isPopup = useRef(false);
+  const popupRef = useRef<Window | null>(null);
+
+  // Declared before the resolve effect so the popup is identified first and
+  // never resolves/captures on its own.
+  useEffect(() => {
+    const msg = popupReturn();
+    if (!msg) return;
+    isPopup.current = true;
+    setPopupMsg(msg);
+    const ch = new BroadcastChannel(PAYPAL_CHANNEL);
+    ch.postMessage(msg);
+    ch.close();
+    window.close(); // works for the script-opened popup; otherwise the note below stays
+  }, []);
 
   const agreed = sum.lanes.filter((l) => !l.noDeal && l.agreedCents != null);
   const order = orderId
@@ -131,6 +188,7 @@ export default function PayFlow() {
   const finishCapture = async (token: string, basketId: string) => {
     try {
       await captureBasket(token, basketId);
+      clearPending();
       setRealStep("captured");
       const real = await getOrder(token, basketId);
       orders.upsert(fromBackendOrder(real));
@@ -167,13 +225,36 @@ export default function PayFlow() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [approveUrl, realStep, bz.basketId, session.token]);
 
+  // The PayPal popup reports back here when PayPal redirects it (then closes
+  // itself) — this tab captures and shows the receipt, no second tab needed.
+  useEffect(() => {
+    if (!approveUrl || realStep === "captured") return;
+    const ch = new BroadcastChannel(PAYPAL_CHANNEL);
+    ch.onmessage = (e: MessageEvent<PayPalMsg>) => {
+      const basketId = useBazaar.getState().basketId;
+      const token = useSession.getState().token;
+      if (!e.data || e.data.basketId !== basketId || !basketId || !token) return;
+      popupRef.current?.close();
+      if (e.data.kind === "approved") {
+        void finishCapture(token, basketId);
+      } else {
+        clearPending();
+        setApproveUrl(null);
+        setStage("ready");
+        setNotice("Payment was cancelled on PayPal. Nothing was charged — you can try again.");
+      }
+    };
+    return () => ch.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [approveUrl, realStep]);
+
   // On load (after IndexedDB hydration), ask the server where this basket
   // actually stands. Covers the tab PayPal's return redirect opens — it has no
   // `approveUrl` in memory, so the poll above never runs there — plus a plain
   // reload after paying. PayPal appends `token` to both its return and cancel
   // URLs, but only an approval carries `PayerID`.
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || isPopup.current) return;
     const basketId = useBazaar.getState().basketId;
     const token = useSession.getState().token;
     if (!basketId || !token) {
@@ -221,6 +302,7 @@ export default function PayFlow() {
 
   const pay = async () => {
     setPayError(null);
+    setNotice(null);
     setStage("paying");
 
     if (!bz.basketId) {
@@ -234,6 +316,12 @@ export default function PayFlow() {
       setStage("ready");
       return;
     }
+    // Open the popup now, inside the click: opened after the checkout await
+    // below, Safari (and others) treat it as unsolicited and block it.
+    const win = window.open("", "moltol-paypal", "popup=yes,width=480,height=760");
+    if (win) win.document.title = "Opening PayPal…";
+    popupRef.current = win;
+
     setOrderId(bz.basketId);
     setRealStep("order_created");
     try {
@@ -244,12 +332,21 @@ export default function PayFlow() {
       setCheckoutFailed(false);
       setRealStep("approved");
       if (checkout.approveUrl) {
+        if (!win || win.closed) {
+          // Popup blocked: do it in this tab. PayPal returns here and the
+          // resolve-on-load effect finishes the capture.
+          location.assign(checkout.approveUrl);
+          return;
+        }
+        markPending(bz.basketId);
         setApproveUrl(checkout.approveUrl);
-        window.open(checkout.approveUrl, "_blank", "noopener");
-        return; // wait for "I've approved it" below
+        win.location.href = checkout.approveUrl;
+        return; // the popup reports back over PAYPAL_CHANNEL (webhook poll as backup)
       }
+      win?.close(); // mock gateway: nothing to approve
       await finishCapture(token, bz.basketId);
     } catch (e) {
+      win?.close();
       setPayError(
         e instanceof BackendAuthError
           ? e.detail || e.title
@@ -267,6 +364,24 @@ export default function PayFlow() {
     // clear/reset just made, and the old basket or deal reappears on arrival.
     void navigate("/app/buy");
   };
+
+  if (popupMsg) {
+    const ok = popupMsg.kind === "approved";
+    return (
+      <div role="status" className="surface grid justify-items-center gap-3 p-10 text-center">
+        <span className="grid h-14 w-14 place-items-center rounded-full bg-paper-3 text-3xl" aria-hidden="true">
+          {ok ? "✓" : "↩"}
+        </span>
+        <p className="t-h2">{ok ? "Payment approved" : "Payment cancelled"}</p>
+        <p className="text-sm text-ink-muted">
+          Your MolTol tab is {ok ? "finishing the payment" : "back on the bill"}. You can close this window.
+        </p>
+        <button type="button" onClick={() => window.close()} className="btn btn-primary">
+          Close window
+        </button>
+      </div>
+    );
+  }
 
   if ((!hydrated || resolving) && stage === "ready") {
     return (
@@ -350,8 +465,8 @@ export default function PayFlow() {
           {approveUrl && paid !== "captured" && (
             <div className="grid gap-2">
               <p className="text-xs text-paper/70">
-                Approve the order in the PayPal tab that just opened, then come
-                back here.
+                Approve the order in the PayPal window. It closes on its own and
+                this page finishes the payment.
               </p>
               <button
                 type="button"
