@@ -269,7 +269,11 @@ export type LaneSummary = ReturnType<typeof selectBazaar>['lanes'][number];
 /** Live aggregated view for the sticky bar + final summary. */
 export function selectBazaar(s: BazaarState) {
   const lanes = s.lanes.map((l) => {
-    const agreed = l.state.phase === 'agreed' ? l.state.agreedPriceCents : null;
+    // The agreed price is set on `deal.agreed` and survives the later
+    // `payment.status` (→ paid) and `proof.revealed` (→ revealed) phases —
+    // gating on `phase === 'agreed'` dropped every lane to ₹0 the moment
+    // payment captured, since the basket stream stays open through checkout.
+    const agreed = l.state.agreedPriceCents ?? null;
     return {
       sku: l.sku,
       title: l.title,
@@ -281,7 +285,7 @@ export function selectBazaar(s: BazaarState) {
       marketCents: l.state.market ? Math.round(l.state.market.medianCents * l.qty) : null,
       agreedCents: agreed != null ? Math.round(agreed * l.qty) : null,
       savedCents: agreed != null ? Math.max(0, Math.round(l.listCents - agreed * l.qty)) : 0,
-      noDeal: l.noDeal || (l.state.phase !== 'agreed' && agreed == null && l.done),
+      noDeal: l.noDeal || (agreed == null && l.done),
       done: l.done,
       controlled: l.controlled,
       running: l.running,
