@@ -10,6 +10,8 @@ export interface OrderLine {
   unit: string;
   qty: number;
   unitCents: number;
+  /** The backend's exact line total (integer arithmetic) — prefer this over unitCents × qty. */
+  lineCents?: number;
   noDeal?: boolean;
 }
 
@@ -52,6 +54,7 @@ export function fromBackendOrder(o: BackendOrder): Order {
       unit: l.unit ?? '',
       qty: l.qty,
       unitCents: l.unitCents ?? 0,
+      lineCents: l.lineCents ?? undefined,
       noDeal: l.noDeal,
     })),
     totalCents: o.totalCents,
